@@ -1,0 +1,314 @@
+const { MongoClient, ObjectId } = require("mongodb");
+
+const uri = process.env.MONGODB_URI || "mongodb+srv://kakhiweinrooneykakhidze_db_user:AL6ZBiEZ6tk%402L4@small.r76sze8.mongodb.net/kakhati";
+const dbName = "kakhati";
+
+// Helper object IDs
+const SUB = {
+  KARTULI: "633b5a60464f1ed48074de5f",
+  MATEMATIKA: "633b5a65464f1ed48074de63",
+  BUNEBA: "633b5a6d464f1ed48074de67",
+  KHELOVNEBA: "633b5a74464f1ed48074de6b",
+  INGLISURI: "633b5a88464f1ed48074de75",
+  MUSIKA: "633b5a8c464f1ed48074de79",
+  SAGVTO: "633b5a8f464f1ed48074de7d",
+  SPORTI: "633b5a93464f1ed48074de81",
+  CHADRAKI: "633b5a97464f1ed48074de85",
+  IST: "633b5a9a464f1ed48074de89",
+  ISTORIA: "633b5a9c464f1ed48074de8d",
+  FIZIKA: "633b5a9f464f1ed48074de91",
+  QIMIA: "633b5aa1464f1ed48074de95",
+  ME_DA_SAZ: "633b5aab464f1ed48074de99",
+  RUSULI: "633b5ab8464f1ed48074de9d",
+  BIOLOGIA: "633b5ac3464f1ed48074dea1",
+  GEOGRAFIA: "633b5ac8464f1ed48074dea5",
+  GERMANULI: "633b5ad2464f1ed48074dea9",
+  SAQ_ISTORIA: "633b5add464f1ed48074dead",
+  SAMOQALAQO: "633b5ae3464f1ed48074deb1",
+  CHVENI_SAQ: "65186d9d2a2a68aa6dd16471",
+  PR_KHELOVNEBA: "658a96e78304ce99986001e5",
+  PR_SAMOQALAQO: "65967b8e8304ce99986400a9",
+  PR_MUSIKA: "660fc8cddaaedf520aaa2ec8",
+  GEO_KVLEVA: "68d848500a0eae68961fe2a6",
+  MED_BIOLOGIA: "68d8500d0a0eae68961ff379"
+};
+
+const TEA = {
+  EDITA_KANKIA: "6338650b6d84152e4c8181d9",
+  LINDA_BERULAVA: "68d849430a0eae68961fe362",
+  ALIKA_SHEDANIA: "6852c6f64b85da4633c2dfa5",
+  IZA_MANIA: "6338650b6d84152e4c8181d1",
+  CIRA_BIGVAVA: "6338650b6d84152e4c8181d3",
+  NATA_BUCXRIKIDZE: "6338650b6d84152e4c8181df",
+  NINO_KAKULIA: "66f44d0bb1ddd4ff34683cb7",
+  LALI_XORGUANI: "66f44c19e0b16f797a4874e9",
+  TAMRIKO_CHURGULIA: "6338650b6d84152e4c8181dd",
+  NANI_GUGUCHIA: "66f25ffeb38d255e8daacbb8",
+  TAMUNA_LUKAVA: "66f2701962e7946949bb7c4c",
+  NATELA_CHAXAIA: "66f26940214dada53ec6ca6a",
+  SOFIO_BESHIA: "6338650b6d84152e4c8181db",
+  ANA_TODUA: "65af99bda0c853921fc5ab9c",
+  TAMILA_KVIRKVELIA: "65af9b5ca0c853921fc5b724",
+  TAMUNA_XUFENIA: "6338650b6d84152e4c8181ed",
+  MIRZA_CXOLARIA: "66e5a328b8cc599633e833f8",
+  RAMIN_KVARACXELIA: "66f06d6a5891503847b7c869",
+  RATI_GARDAVA: "6ac0902359a6f2238af0c2e7",
+  MAQVALA_NARMANIA: "6338650b6d84152e4c8181fb",
+  NANA_QIRIA: "6338650b6d84152e4c8181e7",
+  INGA_TURAVA: "66f25cba96f32d749f741230",
+  NANA_BICHIA: "66f2f01b553e0da0b6a6acff"
+};
+
+function entry(subId, teaId) {
+  return { subject_id: new ObjectId(subId), teacher_id: new ObjectId(teaId) };
+}
+
+// Complete timetable mapping for each class (Mon, Tue, Wed, Thu, Fri)
+const schedules = {
+  // Class 1ა
+  "1ა": [
+    // Mon
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.KHELOVNEBA, TEA.EDITA_KANKIA), entry(SUB.BUNEBA, TEA.EDITA_KANKIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA)],
+    // Tue
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.MUSIKA, TEA.EDITA_KANKIA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.SPORTI, TEA.LINDA_BERULAVA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.KHELOVNEBA, TEA.EDITA_KANKIA)],
+    // Thu
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.CHADRAKI, TEA.EDITA_KANKIA), entry(SUB.BUNEBA, TEA.EDITA_KANKIA)],
+    // Fri
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.MUSIKA, TEA.EDITA_KANKIA), entry(SUB.SPORTI, TEA.LINDA_BERULAVA)]
+  ],
+
+  // Class 2ა
+  "2ა": [
+    // Mon
+    [entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.LINDA_BERULAVA), entry(SUB.SPORTI, TEA.LINDA_BERULAVA)],
+    // Tue
+    [entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.MATEMATIKA, TEA.LINDA_BERULAVA), entry(SUB.MUSIKA, TEA.LINDA_BERULAVA), entry(SUB.SPORTI, TEA.LINDA_BERULAVA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.MATEMATIKA, TEA.LINDA_BERULAVA), entry(SUB.IST, TEA.RATI_GARDAVA), entry(SUB.BUNEBA, TEA.LINDA_BERULAVA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA)],
+    // Thu
+    [entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.MATEMATIKA, TEA.LINDA_BERULAVA), entry(SUB.MUSIKA, TEA.LINDA_BERULAVA), entry(SUB.SPORTI, TEA.LINDA_BERULAVA), entry(SUB.KHELOVNEBA, TEA.LINDA_BERULAVA)],
+    // Fri
+    [entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.LINDA_BERULAVA), entry(SUB.BUNEBA, TEA.LINDA_BERULAVA), entry(SUB.KARTULI, TEA.LINDA_BERULAVA), entry(SUB.CHADRAKI, TEA.EDITA_KANKIA)]
+  ],
+
+  // Class 3ა
+  "3ა": [
+    // Mon
+    [entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.BUNEBA, TEA.IZA_MANIA), entry(SUB.MATEMATIKA, TEA.IZA_MANIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.KARTULI, TEA.IZA_MANIA), entry(SUB.SPORTI, TEA.IZA_MANIA)],
+    // Tue
+    [entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.IZA_MANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.IZA_MANIA), entry(SUB.ME_DA_SAZ, TEA.ANA_TODUA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.IZA_MANIA), entry(SUB.MATEMATIKA, TEA.IZA_MANIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.IST, TEA.RATI_GARDAVA), entry(SUB.SPORTI, TEA.IZA_MANIA)],
+    // Thu
+    [entry(SUB.ME_DA_SAZ, TEA.ANA_TODUA), entry(SUB.MATEMATIKA, TEA.IZA_MANIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.KHELOVNEBA, TEA.IZA_MANIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.KARTULI, TEA.IZA_MANIA)],
+    // Fri
+    [entry(SUB.KARTULI, TEA.IZA_MANIA), entry(SUB.KARTULI, TEA.IZA_MANIA), entry(SUB.MATEMATIKA, TEA.IZA_MANIA), entry(SUB.SPORTI, TEA.IZA_MANIA), entry(SUB.KHELOVNEBA, TEA.IZA_MANIA)]
+  ],
+
+  // Class 4ა
+  "4ა": [
+    // Mon
+    [entry(SUB.IST, TEA.RATI_GARDAVA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.MATEMATIKA, TEA.CIRA_BIGVAVA), entry(SUB.BUNEBA, TEA.CIRA_BIGVAVA)],
+    // Tue
+    [entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.MATEMATIKA, TEA.CIRA_BIGVAVA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.ME_DA_SAZ, TEA.ANA_TODUA), entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.SPORTI, TEA.CIRA_BIGVAVA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.CIRA_BIGVAVA), entry(SUB.SPORTI, TEA.CIRA_BIGVAVA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA)],
+    // Thu
+    [entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.MATEMATIKA, TEA.CIRA_BIGVAVA), entry(SUB.SPORTI, TEA.CIRA_BIGVAVA), entry(SUB.ME_DA_SAZ, TEA.ANA_TODUA)],
+    // Fri
+    [entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.KARTULI, TEA.CIRA_BIGVAVA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.CIRA_BIGVAVA), entry(SUB.BUNEBA, TEA.CIRA_BIGVAVA)]
+  ],
+
+  // Class 5ა
+  "5ა": [
+    // Mon
+    [entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.CHVENI_SAQ, TEA.LALI_XORGUANI), entry(SUB.IST, TEA.NATELA_CHAXAIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA)],
+    // Tue
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA)],
+    // Wed
+    [entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.CHVENI_SAQ, TEA.LALI_XORGUANI), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.IST, TEA.NATELA_CHAXAIA)],
+    // Thu
+    [entry(SUB.CHVENI_SAQ, TEA.LALI_XORGUANI), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)],
+    // Fri
+    [entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.MATEMATIKA, TEA.EDITA_KANKIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)]
+  ],
+
+  // Class 6ა
+  "6ა": [
+    // Mon
+    [entry(SUB.IST, TEA.NATELA_CHAXAIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA)],
+    // Tue
+    [entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA)],
+    // Wed
+    [entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA), entry(SUB.IST, TEA.NATELA_CHAXAIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA)],
+    // Thu
+    [entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.PR_KHELOVNEBA, TEA.LALI_XORGUANI), entry(SUB.KARTULI, TEA.NINO_KAKULIA)],
+    // Fri
+    [entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA), entry(SUB.KARTULI, TEA.NINO_KAKULIA)]
+  ],
+
+  // Class 7ა
+  "7ა": [
+    // Mon
+    [entry(SUB.BUNEBA, TEA.SOFIO_BESHIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA)],
+    // Tue
+    [entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.FIZIKA, TEA.RAMIN_KVARACXELIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA)],
+    // Wed
+    [entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA)],
+    // Thu
+    [entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA)],
+    // Fri
+    [entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.MATEMATIKA, TEA.NINO_KAKULIA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.EDITA_KANKIA), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)]
+  ],
+
+  // Class 8ა
+  "8ა": [
+    // Mon
+    [entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.FIZIKA, TEA.RAMIN_KVARACXELIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA)],
+    // Tue
+    [entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.IST, TEA.NATELA_CHAXAIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)],
+    // Thu
+    [entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA)],
+    // Fri
+    [entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)]
+  ],
+
+  // Class 9ა
+  "9ა": [
+    // Mon
+    [entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.FIZIKA, TEA.RAMIN_KVARACXELIA)],
+    // Tue
+    [entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA)],
+    // Wed
+    [entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)],
+    // Thu
+    [entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.PR_SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.MUSIKA, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE)],
+    // Fri
+    [entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)]
+  ],
+
+  // Class 10ა
+  "10ა": [
+    // Mon
+    [entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.FIZIKA, TEA.RAMIN_KVARACXELIA), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA)],
+    // Tue
+    [entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI)],
+    // Wed
+    [entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)],
+    // Thu
+    [entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.GERMANULI, TEA.NATELA_CHAXAIA)],
+    // Fri
+    [entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA)]
+  ],
+
+  // Class 11-12ა
+  "11-12ა": [
+    // Mon
+    [entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.BIOLOGIA, TEA.MIRZA_CXOLARIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.QIMIA, TEA.MIRZA_CXOLARIA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA)],
+    // Tue
+    [entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.KHELOVNEBA, TEA.NANI_GUGUCHIA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.PR_MUSIKA, TEA.TAMRIKO_CHURGULIA)],
+    // Wed
+    [entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.GEO_KVLEVA, TEA.TAMUNA_XUFENIA), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA)],
+    // Thu
+    [entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.GEOGRAFIA, TEA.TAMUNA_XUFENIA), entry(SUB.SAQ_ISTORIA, TEA.LALI_XORGUANI), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.ISTORIA, TEA.LALI_XORGUANI), entry(SUB.SAMOQALAQO, TEA.ANA_TODUA)],
+    // Fri
+    [entry(SUB.SAMOQALAQO, TEA.ANA_TODUA), entry(SUB.KARTULI, TEA.NATA_BUCXRIKIDZE), entry(SUB.MATEMATIKA, TEA.NATA_BUCXRIKIDZE), entry(SUB.RUSULI, TEA.TAMUNA_LUKAVA), entry(SUB.SAGVTO, TEA.ALIKA_SHEDANIA), entry(SUB.SPORTI, TEA.TAMILA_KVIRKVELIA), entry(SUB.INGLISURI, TEA.TAMRIKO_CHURGULIA)]
+  ]
+};
+
+async function updateAll() {
+  const client = new MongoClient(uri);
+  await client.connect();
+  const db = client.db(dbName);
+
+  console.log("Connected to MongoDB.");
+
+  // Fetch existing classes
+  const classesColl = db.collection("class");
+  const teachersColl = db.collection("teachers");
+
+  const dbClasses = await classesColl.find({}).toArray();
+
+  for (const [classCode, calendarData] of Object.entries(schedules)) {
+    // Find class document by ID (e.g. "1ა", "2ა", "11-12ა")
+    const clsDoc = dbClasses.find(c => c.ID === classCode || c.classname === classCode);
+
+    if (!clsDoc) {
+      console.warn(`Class with ID "${classCode}" not found in database!`);
+      continue;
+    }
+
+    console.log(`\nProcessing Class "${classCode}" (_id: ${clsDoc._id})...`);
+
+    // Calculate unique subjects & teacher pairs and their weekly hours from calendarData
+    const pairMap = new Map(); // key: "subId_teaId", val: { subject_id, teacher_id, hours_per_week }
+
+    calendarData.forEach(daySlots => {
+      daySlots.forEach(slot => {
+        if (!slot) return;
+        const key = `${slot.subject_id.toString()}_${slot.teacher_id.toString()}`;
+        if (!pairMap.has(key)) {
+          pairMap.set(key, {
+            subject_id: slot.subject_id,
+            teacher_id: slot.teacher_id,
+            hours_per_week: 0
+          });
+        }
+        pairMap.get(key).hours_per_week += 1;
+      });
+    });
+
+    const updatedSubjectsList = Array.from(pairMap.values());
+
+    console.log(`  Updating calendar (${calendarData.length} days) and subjects (${updatedSubjectsList.length} subject-teacher pairs)...`);
+
+    // Update class document in database
+    await classesColl.updateOne(
+      { _id: clsDoc._id },
+      {
+        $set: {
+          calendar: calendarData,
+          subjects: updatedSubjectsList,
+          classname: classCode // Ensure classname is set if it was undefined
+        }
+      }
+    );
+
+    // Also update teachers' classes collection array so teacher knows they teach in this class
+    for (const subItem of updatedSubjectsList) {
+      const teacherDoc = await teachersColl.findOne({ _id: subItem.teacher_id });
+      if (teacherDoc) {
+        let teacherClasses = teacherDoc.classes || [];
+        // Check if class entry exists
+        let clsEntry = teacherClasses.find(tc => tc.class_id && tc.class_id.toString() === clsDoc._id.toString());
+        if (!clsEntry) {
+          clsEntry = {
+            class_id: clsDoc._id.toString(),
+            subjects: [{ subject_id: subItem.subject_id.toString() }]
+          };
+          teacherClasses.push(clsEntry);
+        } else {
+          // Ensure subject_id is inside clsEntry.subjects
+          if (!clsEntry.subjects) clsEntry.subjects = [];
+          const hasSub = clsEntry.subjects.some(s => s.subject_id === subItem.subject_id.toString());
+          if (!hasSub) {
+            clsEntry.subjects.push({ subject_id: subItem.subject_id.toString() });
+          }
+        }
+        await teachersColl.updateOne(
+          { _id: subItem.teacher_id },
+          { $set: { classes: teacherClasses } }
+        );
+      }
+    }
+  }
+
+  console.log("\n✅ All classes updated successfully with missing subjects, teachers, and full calendar schedules!");
+  await client.close();
+}
+
+updateAll().catch(console.error);

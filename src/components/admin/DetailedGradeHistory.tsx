@@ -1,0 +1,2074 @@
+"use client";
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { useColor } from '../ColorContext';
+import { IoArrowBack } from 'react-icons/io5';
+
+const ArrowLeftIcon = IoArrowBack as React.FC<{ size?: number | string }>;
+
+interface Grade {
+    _id: string;
+    student_id: string;
+    subject_id: string;
+    class_id: string;
+    point: number;
+    pointType: number;
+    date: string;
+    time: string;
+    comment: string;
+    checked: boolean;
+    lesson_num?: number;
+}
+
+interface Student {
+    _id: string;
+    name: string;
+    surname: string;
+    user_ID: string;
+}
+
+interface Subject {
+    _id: string;
+    name: string;
+}
+
+interface DetailedGradeHistoryProps {
+    classId: string;
+    className: string;
+    subjectId?: string;
+    subjectName?: string;
+    selectedColor?: string;
+    logoutButtonStyle?: React.CSSProperties;
+    onBackClick: () => void;
+    selectedYear?: string;
+    isAdmin?: boolean;
+    availableTeacherSubjects?: { id: string; name: string }[];
+    onSubjectChange?: (subjectId: string, subjectName: string) => void;
+}
+
+const isDateEditableForUser = (dateStr: string, isAdminUser?: boolean): boolean => {
+    if (isAdminUser) return true;
+    if (!dateStr) return true;
+    const gradeDate = new Date(dateStr);
+    if (isNaN(gradeDate.getTime())) return true;
+    gradeDate.setHours(0, 0, 0, 0);
+
+    const minAllowedDate = new Date();
+    minAllowedDate.setDate(minAllowedDate.getDate() - 14);
+    minAllowedDate.setHours(0, 0, 0, 0);
+
+    return gradeDate >= minAllowedDate;
+};
+
+const getAcademicYearFromDate = (dateStr: string) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    const startYear = month >= 9 ? year : year - 1;
+    return `${startYear}-${startYear + 1}`;
+};
+
+const getCurrentAcademicYear = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const startYear = month >= 9 ? year : year - 1;
+    return `${startYear}-${startYear + 1}`;
+};
+
+const normalizeAcademicYear = (yr?: string | null): string | null => {
+    if (!yr) return null;
+    const m1 = yr.match(/^(\d{2,4})[-/](\d{2,4})$/);
+    if (m1) {
+        let s = parseInt(m1[1], 10);
+        let e = parseInt(m1[2], 10);
+        if (s < 100) s += 2000;
+        if (e < 100) e += 2000;
+        return `${s}-${e}`;
+    }
+    const m2 = yr.match(/^(\d{2})(\d{2})year$/);
+    if (m2) {
+        return `20${m2[1]}-20${m2[2]}`;
+    }
+    const m3 = yr.match(/^(\d{4})year$/);
+    if (m3) {
+        const s = parseInt(m3[1], 10);
+        return `${s}-${s + 1}`;
+    }
+    return yr;
+};
+
+const isDateInSemester = (dateStr: string, semester: 'all' | '1' | '2') => {
+    if (semester === 'all') return true;
+    const parts = dateStr.split(/[-/]/);
+    let month = 0;
+    if (parts.length >= 3) {
+        if (parts[0].length === 4) month = parseInt(parts[1], 10);
+        else month = parseInt(parts[1], 10);
+    } else if (parts.length === 2) {
+        month = parseInt(parts[1], 10);
+    }
+    if (!month || isNaN(month)) {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) month = d.getMonth() + 1;
+    }
+    if (!month) return true;
+    if (semester === '1') {
+        return month >= 9 && month <= 12;
+    } else {
+        return month >= 1 && month <= 6;
+    }
+};
+
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split(/[-T/]/);
+    if (parts.length >= 3) {
+        if (parts[0].length === 4) {
+            return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}`;
+        } else {
+            return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}`;
+        }
+    }
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+        return `${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    }
+    return dateStr;
+};
+
+const getSingleGradeDisplay = (g: Grade) => {
+    if (!g) return '';
+    if (g.point === -1) return g.checked ? '✓' : '✗';
+    if (g.point === -2) return 'X';
+    if (g.point === -3) return 'ჩთ';
+    if (typeof g.point === 'number' && g.point >= 0) return g.point.toString();
+    return '✓';
+};
+
+const DetailedGradeHistory: React.FC<DetailedGradeHistoryProps> = ({
+    classId,
+    className,
+    subjectId,
+    subjectName,
+    selectedColor,
+    onBackClick,
+    selectedYear,
+    isAdmin = false,
+    availableTeacherSubjects,
+    onSubjectChange
+}) => {
+    const { currentTheme } = useColor();
+    const isDark = currentTheme.id === 'dark';
+
+    const pageBg = isDark ? '#090d16' : '#f8fafc';
+    const cardBg = isDark ? '#111827' : '#ffffff';
+    const cardBorder = isDark ? '#1f2937' : '#e2e8f0';
+    const textColor = isDark ? '#ffffff' : '#1e293b';
+    const headingColor = isDark ? '#ffffff' : '#2e1065';
+    const accentTitleColor = isDark ? '#38bdf8' : '#4338ca';
+    const subTextColor = isDark ? '#94a3b8' : '#64748b';
+    const stickyHeaderBg = isDark ? '#1f2937' : '#ffffff';
+    const stickyColBg = isDark ? '#111827' : '#ffffff';
+    const borderGridColor = isDark ? '#374151' : '#e2e8f0';
+
+    const currentAy = getCurrentAcademicYear();
+    const [grades, setGrades] = useState<Grade[]>([]);
+    const [students, setStudents] = useState<Student[]>([]);
+    const [subjects, setSubjects] = useState<Subject[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [selectedSubject, setSelectedSubject] = useState<string>(subjectId || 'all');
+    const [academicYearFilter, setAcademicYearFilter] = useState<string>(normalizeAcademicYear(selectedYear) || currentAy);
+    const [semesterFilter, setSemesterFilter] = useState<'all' | '1' | '2'>('all');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [mobileSearchQuery, setMobileSearchQuery] = useState('');
+    const [expandedMobileStudentId, setExpandedMobileStudentId] = useState<string | null>(null);
+    const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => typeof window !== 'undefined' ? window.innerWidth <= 768 : false);
+    const [mobileViewMode, setMobileViewMode] = useState<'cards' | 'matrix'>(() => typeof window !== 'undefined' && window.innerWidth <= 768 ? 'cards' : 'matrix');
+
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobileScreen(mobile);
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    const sortedStudents = React.useMemo(() => {
+        return [...students].sort((a, b) => `${a.surname || ''} ${a.name || ''}`.localeCompare(`${b.surname || ''} ${b.name || ''}`, 'ka'));
+    }, [students]);
+
+    const [editModalOpen, setEditModalOpen] = useState(false);
+    const [selectedCell, setSelectedCell] = useState<{
+        student: Student;
+        date: string;
+        targetGrade: Grade | null;
+        lessonNum?: number;
+    } | null>(null);
+
+    const [isAttending, setIsAttending] = useState<boolean>(true);
+    const [editPoint, setEditPoint] = useState<string>('10');
+    const [editPointType, setEditPointType] = useState<number>(1);
+    const [editSubjectId, setEditSubjectId] = useState<string>('');
+    const [savingGrade, setSavingGrade] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+    const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+    const [editSubjectTarget, setEditSubjectTarget] = useState<Subject | null>(null);
+    const [editSubjectName, setEditSubjectName] = useState('');
+    const [editSubjectIsProject, setEditSubjectIsProject] = useState(false);
+    const [savingSubject, setSavingSubject] = useState(false);
+
+    const openEditSubjectModal = (subj: Subject) => {
+        setEditSubjectTarget(subj);
+        setEditSubjectName(subj.name);
+        const isProj = Boolean(
+            (subj as any).is_project || (subj as any).is_pass_fail || (subj as any).type === 'project' || /პროექტი|ჩათვლა|პროექტული/i.test(subj.name)
+        );
+        setEditSubjectIsProject(isProj);
+        setSubjectModalOpen(true);
+    };
+
+    const handleSaveSubject = async () => {
+        if (!editSubjectTarget || !editSubjectName.trim()) return;
+        setSavingSubject(true);
+        try {
+            const res = await fetch('/api/subject/update', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    _id: editSubjectTarget._id,
+                    name: editSubjectName.trim(),
+                    is_project: editSubjectIsProject,
+                    is_pass_fail: editSubjectIsProject
+                })
+            });
+            if (res.ok) {
+                const updatedName = editSubjectName.trim();
+                setSubjects(prev => prev.map(s => s._id === editSubjectTarget._id ? {
+                    ...s,
+                    name: updatedName,
+                    is_project: editSubjectIsProject,
+                    is_pass_fail: editSubjectIsProject
+                } : s));
+                setToast({ message: '✓ საგანი წარმატებით ჩასწორდა!', type: 'success' });
+                setTimeout(() => setToast(null), 3000);
+                setSubjectModalOpen(false);
+            } else {
+                const data = await res.json();
+                setToast({ message: `შეცდომა: ${data.message || 'ვერ ჩაასწორა'}`, type: 'error' });
+                setTimeout(() => setToast(null), 3000);
+            }
+        } catch (err) {
+            setToast({ message: 'საგნის ჩასწორებისას მოხდა შეცდომა', type: 'error' });
+            setTimeout(() => setToast(null), 3000);
+        } finally {
+            setSavingSubject(false);
+        }
+    };
+
+    useEffect(() => {
+        if (subjectId) setSelectedSubject(subjectId);
+    }, [subjectId]);
+
+    useEffect(() => {
+        if (selectedYear) {
+            const norm = normalizeAcademicYear(selectedYear);
+            if (norm) setAcademicYearFilter(norm);
+        }
+    }, [selectedYear]);
+
+    useEffect(() => {
+        const cacheKey = `history_cache_${classId}`;
+        let hasCache = false;
+
+        try {
+            const cachedStr = localStorage.getItem(cacheKey);
+            if (cachedStr) {
+                const cachedData = JSON.parse(cachedStr);
+                if (cachedData && Array.isArray(cachedData.grades) && Array.isArray(cachedData.students)) {
+                    setGrades(cachedData.grades);
+                    setStudents(cachedData.students);
+                    if (Array.isArray(cachedData.subjects)) setSubjects(cachedData.subjects);
+
+                    const yearsWithGrades = Array.from(
+                        new Set(cachedData.grades.map((g: any) => getAcademicYearFromDate(g.date)).filter(Boolean) as string[])
+                    ).sort().reverse();
+
+                    if (yearsWithGrades.length > 0) {
+                        const currentYearGrades = cachedData.grades.filter((g: any) => getAcademicYearFromDate(g.date) === currentAy);
+                        if (currentYearGrades.length === 0 && !selectedYear) {
+                            setAcademicYearFilter(yearsWithGrades[0]);
+                        }
+                    }
+
+                    setLoading(false);
+                    hasCache = true;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to read history cache:', e);
+        }
+
+        const fetchData = async () => {
+            if (hasCache) {
+                setIsRefreshing(true);
+            } else {
+                setLoading(true);
+            }
+
+            try {
+                // Fetch class details if className is empty
+                let resolvedClassName = className;
+                if (!resolvedClassName && classId) {
+                    try {
+                        const classRes = await fetch('/api/classes');
+                        if (classRes.ok) {
+                            const allClasses = await classRes.json();
+                            const foundCls = Array.isArray(allClasses) ? allClasses.find((c: any) => c._id === classId) : null;
+                            if (foundCls) resolvedClassName = foundCls.classname;
+                        }
+                    } catch (err) {}
+                }
+
+                // Fetch grades filtered by current/selected academic year
+                const targetYear = academicYearFilter || currentAy;
+                const gradesUrl = `/api/grades?class_id=${classId}&year=${encodeURIComponent(targetYear)}`;
+
+                const match = (resolvedClassName || '').match(/^([0-9]+)([ა-ჰ])$/);
+                const studentsUrl = match
+                    ? `/api/student/grade/${match[1]}?parallel=${encodeURIComponent(match[2])}`
+                    : '/api/student/all';
+
+                const [gradesRes, studentsRes, subjectsRes] = await Promise.all([
+                    fetch(gradesUrl),
+                    fetch(studentsUrl),
+                    fetch('/api/subjects')
+                ]);
+
+                const [gradesData, studentsData, subjectsData] = await Promise.all([
+                    gradesRes.json(),
+                    studentsRes.json(),
+                    subjectsRes.json()
+                ]);
+
+                let fetchedGrades: Grade[] = Array.isArray(gradesData) ? gradesData : [];
+                
+                // Fallback: If 0 grades for targetYear, fetch all grades for classId to find available years
+                if (fetchedGrades.length === 0 && targetYear === currentAy) {
+                    try {
+                        const allGradesRes = await fetch(`/api/grades?class_id=${classId}`);
+                        if (allGradesRes.ok) {
+                            const allGradesData = await allGradesRes.json();
+                            if (Array.isArray(allGradesData) && allGradesData.length > 0) {
+                                fetchedGrades = allGradesData;
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                setGrades(fetchedGrades);
+
+                let classStudents = Array.isArray(studentsData)
+                    ? (match ? studentsData : studentsData.filter((s: any) => String(s.class_id) === String(classId) || (s.classInfo && String(s.classInfo._id) === String(classId))))
+                    : [];
+                classStudents = classStudents.filter((s: any) => !s.isTransferred && s.status !== 'transferred');
+
+                classStudents.sort((a: any, b: any) => `${a.surname || ''} ${a.name || ''}`.localeCompare(`${b.surname || ''} ${b.name || ''}`, 'ka'));
+                setStudents(classStudents);
+                let validSubjects = Array.isArray(subjectsData) ? subjectsData : [];
+                validSubjects.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'ka'));
+                setSubjects(validSubjects);
+
+                // Save to localStorage cache for instant loading next time
+                try {
+                    localStorage.setItem(cacheKey, JSON.stringify({
+                        grades: fetchedGrades,
+                        students: classStudents,
+                        subjects: validSubjects,
+                        timestamp: Date.now()
+                    }));
+                } catch (cacheErr) {
+                    console.error('Failed to save history cache:', cacheErr);
+                }
+
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            } finally {
+                setLoading(false);
+                setIsRefreshing(false);
+            }
+        };
+        fetchData();
+    }, [classId, className, academicYearFilter]);
+
+
+
+    const subjectFilteredGrades = selectedSubject === 'all'
+        ? grades
+        : grades.filter(g => String(g.subject_id) === String(selectedSubject));
+
+    const detectedAcademicYears = Array.from(
+        new Set(subjectFilteredGrades.map(g => getAcademicYearFromDate(g.date)).filter(Boolean) as string[])
+    ).sort().reverse();
+
+    if (!detectedAcademicYears.includes(currentAy)) {
+        detectedAcademicYears.unshift(currentAy);
+    }
+
+    const filteredGrades = academicYearFilter === 'all'
+        ? subjectFilteredGrades
+        : subjectFilteredGrades.filter(g => getAcademicYearFromDate(g.date) === academicYearFilter);
+
+    // Group columns by date AND lesson_num so multiple lessons on the same day get separate columns
+    interface DateColumn {
+        key: string;
+        date: string;
+        lessonNum: number;
+        label: string;
+        hasMultipleLessonsOnDate: boolean;
+    }
+
+    const { dateColumns, studentColumnGrades, columnPointTypes } = React.useMemo(() => {
+        // Group grades by student_id and date to resolve effective lesson numbers
+        const studentDateGradesMap = new Map<string, Grade[]>();
+        filteredGrades.forEach(g => {
+            if (!g.date) return;
+            if (!isDateInSemester(g.date, semesterFilter)) return;
+
+            const key = `${g.student_id}_${g.date}`;
+            if (!studentDateGradesMap.has(key)) {
+                studentDateGradesMap.set(key, []);
+            }
+            studentDateGradesMap.get(key)!.push(g);
+        });
+
+        // Map each Grade reference -> effective lesson_num
+        const gradeEffectiveLessonMap = new Map<Grade, number>();
+        const mapByDate = new Map<string, Set<number>>();
+
+        studentDateGradesMap.forEach((gList, key) => {
+            const dateStr = key.split('_')[1];
+            if (!mapByDate.has(dateStr)) {
+                mapByDate.set(dateStr, new Set<number>());
+            }
+
+            const explicitLessonNums = gList.map(g => g.lesson_num).filter((n): n is number => Boolean(n && n > 0));
+            const hasDuplicates = new Set(explicitLessonNums).size < explicitLessonNums.length;
+            const hasMissing = explicitLessonNums.length < gList.length;
+
+            if (!hasDuplicates && !hasMissing) {
+                gList.forEach(g => {
+                    const lNum = g.lesson_num!;
+                    gradeEffectiveLessonMap.set(g, lNum);
+                    mapByDate.get(dateStr)!.add(lNum);
+                });
+            } else {
+                // Assign sequential lesson numbers (1, 2, 3...) per grade so multiple checks/grades get separate columns
+                const sortedList = [...gList].sort((a, b) => {
+                    if (a.lesson_num && b.lesson_num && a.lesson_num !== b.lesson_num) {
+                        return a.lesson_num - b.lesson_num;
+                    }
+                    if (a.time && b.time) return a.time.localeCompare(b.time);
+                    return (a._id || '').localeCompare(b._id || '');
+                });
+
+                sortedList.forEach((g, idx) => {
+                    const lNum = (g.lesson_num && g.lesson_num > 0 && !hasDuplicates) ? g.lesson_num : (idx + 1);
+                    gradeEffectiveLessonMap.set(g, lNum);
+                    mapByDate.get(dateStr)!.add(lNum);
+                });
+            }
+        });
+
+        const sortedDates = Array.from(mapByDate.keys()).sort((a, b) =>
+            sortOrder === 'desc' ? b.localeCompare(a) : a.localeCompare(b)
+        );
+
+        const cols: DateColumn[] = [];
+        sortedDates.forEach(dateStr => {
+            const lessonNums = Array.from(mapByDate.get(dateStr)!).sort((a, b) => a - b);
+            const hasMultiple = lessonNums.length > 1;
+
+            lessonNums.forEach(lNum => {
+                const label = hasMultiple
+                    ? `${formatDate(dateStr)} (${lNum === 1 ? 'I' : lNum === 2 ? 'II' : lNum + 'ს'})`
+                    : formatDate(dateStr);
+
+                cols.push({
+                    key: `${dateStr}_L${lNum}`,
+                    date: dateStr,
+                    lessonNum: lNum,
+                    label,
+                    hasMultipleLessonsOnDate: hasMultiple
+                });
+            });
+        });
+
+        const studentColGrades: { [studentId: string]: { [colKey: string]: Grade[] } } = {};
+        const colPointTypes: { [colKey: string]: number } = {};
+
+        filteredGrades.forEach(g => {
+            if (!g.date) return;
+            if (!isDateInSemester(g.date, semesterFilter)) return;
+
+            const lNum = gradeEffectiveLessonMap.get(g) || (g.lesson_num && g.lesson_num > 0 ? g.lesson_num : 1);
+            const colKey = `${g.date}_L${lNum}`;
+
+            if (!studentColGrades[g.student_id]) studentColGrades[g.student_id] = {};
+            if (!studentColGrades[g.student_id][colKey]) studentColGrades[g.student_id][colKey] = [];
+            studentColGrades[g.student_id][colKey].push(g);
+
+            if (g.pointType === 3) {
+                colPointTypes[colKey] = 3;
+            } else if (g.pointType === 1 && colPointTypes[colKey] !== 3) {
+                colPointTypes[colKey] = 1;
+            }
+        });
+
+        return {
+            dateColumns: cols,
+            studentColumnGrades: studentColGrades,
+            columnPointTypes: colPointTypes
+        };
+    }, [filteredGrades, semesterFilter, sortOrder]);
+
+    const handleDeleteDay = async (dateToDelete: string) => {
+        if (!isAdmin) {
+            alert('დღის წაშლის უფლება აქვს მხოლოდ ადმინისტრატორს.');
+            return;
+        }
+        if (!isDateEditableForUser(dateToDelete, isAdmin)) {
+            alert('მასწავლებელს დღის მონაცემების წაშლა შეუძლია მხოლოდ ბოლო 2 კვირის (14 დღის) ვადით. ჩასასწორებლად მიმართეთ ადმინისტრაციას.');
+            return;
+        }
+        if (!window.confirm(`დარწმუნებული ხართ, რომ გსურთ ${formatDate(dateToDelete)} (${dateToDelete}) თარიღის ყველა ნიშნის/სწრებადობის წაშლა?`)) {
+            return;
+        }
+        try {
+            const res = await fetch('/api/grade/delete-day', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    date: dateToDelete,
+                    class_id: classId,
+                    subject_id: selectedSubject !== 'all' ? selectedSubject : undefined,
+                    year: selectedYear,
+                    isAdmin: Boolean(isAdmin)
+                })
+            });
+            if (res.ok) {
+                setGrades(prev => prev.filter(g => g.date !== dateToDelete));
+                alert('დღის მონაცემები წარმატებით წაიშალა!');
+            } else {
+                const data = await res.json();
+                alert(`წაშლა ვერ მოხერხდა: ${data.message}`);
+            }
+        } catch (err) {
+            alert('დღის წაშლისას მოხდა შეცდომა');
+        }
+    };
+
+    const openEditModalForGrade = (student: Student, date: string, grade: Grade | null, targetLessonNum: number = 1) => {
+        setSelectedCell({ student, date, targetGrade: grade, lessonNum: targetLessonNum });
+        const defaultSubj = selectedSubject !== 'all' ? selectedSubject : (subjects[0]?._id || '');
+        const subjId = grade?.subject_id || defaultSubj;
+        setEditSubjectId(subjId);
+        setEditPointType(grade?.pointType || 1);
+
+        if (!grade) {
+            setIsAttending(true);
+            setEditPoint('none');
+        } else if (grade.point === -2 || grade.checked === false) {
+            setIsAttending(false);
+            setEditPoint('X');
+        } else if (grade.point === -3) {
+            setIsAttending(true);
+            setEditPoint('ჩთ');
+        } else if (grade.point === -1) {
+            setIsAttending(true);
+            setEditPoint('none');
+        } else {
+            setIsAttending(true);
+            setEditPoint(grade.point.toString());
+        }
+        setEditModalOpen(true);
+    };
+
+    const handleSaveGrade = async () => {
+        if (!selectedCell || !editSubjectId) return;
+        if (!isDateEditableForUser(selectedCell.date, isAdmin)) {
+            alert('მასწავლებელს ნიშნის შეტანა/ჩასწორება შეუძლია მხოლოდ ბოლო 2 კვირის (14 დღის) ვადით. ჩასასწორებლად მიმართეთ ადმინისტრაციას.');
+            return;
+        }
+        setSavingGrade(true);
+        try {
+            let pointVal = 10;
+            let checkedVal = true;
+
+            if (!isAttending) {
+                pointVal = -2;
+                checkedVal = false;
+            } else if (editPoint === 'ჩთ') {
+                pointVal = -3;
+                checkedVal = true;
+            } else if (editPoint === 'არა ჩთ') {
+                pointVal = -3;
+                checkedVal = false;
+            } else if (editPoint === 'none' || editPoint === '' || editPoint === '-1') {
+                pointVal = -1;
+                checkedVal = true;
+            } else {
+                pointVal = parseInt(editPoint, 10);
+                if (isNaN(pointVal)) pointVal = -1;
+                checkedVal = true;
+            }
+
+            const payload: any = {
+                student_id: selectedCell.student._id,
+                subject_id: editSubjectId,
+                class_id: classId,
+                date: selectedCell.date,
+                point: pointVal,
+                pointType: editPointType,
+                checked: checkedVal,
+                lesson_num: selectedCell.lessonNum || selectedCell.targetGrade?.lesson_num || 1,
+                isAdmin: Boolean(isAdmin)
+            };
+
+            if (selectedCell.targetGrade && selectedCell.targetGrade._id) {
+                payload.id = selectedCell.targetGrade._id;
+            }
+
+            const res = await fetch('/api/grade/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                const targetYear = academicYearFilter || currentAy;
+                const gradesRes = await fetch(`/api/grades?class_id=${classId}&year=${encodeURIComponent(targetYear)}`);
+                const gradesData = await gradesRes.json();
+                if (Array.isArray(gradesData)) {
+                    setGrades(gradesData);
+                    try {
+                        localStorage.setItem(`history_cache_${classId}`, JSON.stringify({
+                            grades: gradesData,
+                            students,
+                            subjects,
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) {}
+                }
+                setEditModalOpen(false);
+                setToast({ message: selectedCell.targetGrade ? '✓ ნიშანი წარმატებით ჩასწორდა!' : '✓ ნიშანი წარმატებით დაემატა!', type: 'success' });
+                setTimeout(() => setToast(null), 3500);
+            } else {
+                const data = await res.json();
+                alert(`შეცდომა: ${data.message}`);
+            }
+        } catch (err) {
+            alert('ნიშნის შენახვისას მოხდა შეცდომა');
+        } finally {
+            setSavingGrade(false);
+        }
+    };
+
+    const handleDeleteSingleGrade = async () => {
+        if (!selectedCell || !selectedCell.targetGrade) return;
+        if (!isDateEditableForUser(selectedCell.date, isAdmin)) {
+            alert('მასწავლებელს ნიშნის წაშლა შეუძლია მხოლოდ ბოლო 2 კვირის (14 დღის) ვადით. ჩასასწორებლად მიმართეთ ადმინისტრაციას.');
+            return;
+        }
+        const targetGrade = selectedCell.targetGrade;
+        if (!window.confirm('დარწმუნებული ხართ, რომ გსურთ ამ ნიშნის წაშლა?')) return;
+        setSavingGrade(true);
+        try {
+            const res = await fetch('/api/grade/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: targetGrade._id,
+                    date: selectedCell.date,
+                    isAdmin: Boolean(isAdmin)
+                })
+            });
+            if (res.ok) {
+                setGrades(prev => {
+                    const next = prev.filter(g => g._id !== targetGrade._id);
+                    try {
+                        localStorage.setItem(`history_cache_${classId}`, JSON.stringify({
+                            grades: next,
+                            students,
+                            subjects,
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) {}
+                    return next;
+                });
+                setEditModalOpen(false);
+                setToast({ message: '✓ ნიშანი წარმატებით წაიშალა!', type: 'success' });
+                setTimeout(() => setToast(null), 3500);
+            } else {
+                const data = await res.json();
+                alert(`წაშლა ვერ მოხერხდა: ${data.message}`);
+            }
+        } catch (err) {
+            alert('წაშლისას მოხდა შეცდომა');
+        } finally {
+            setSavingGrade(false);
+        }
+    };
+
+
+
+
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const allDatesArr = React.useMemo(() => {
+        return Array.from(new Set(dateColumns.map(c => c.date)));
+    }, [dateColumns]);
+
+    const isNumericGrade = (g: Grade) => typeof g.point === 'number' && g.point >= 0;
+
+    const displayGrades = React.useMemo(() => {
+        return filteredGrades;
+    }, [filteredGrades]);
+
+    const studentDateGrades = React.useMemo(() => {
+        const map: { [studentId: string]: { [dateStr: string]: Grade[] } } = {};
+        filteredGrades.forEach(g => {
+            if (!g.date) return;
+            if (!map[g.student_id]) map[g.student_id] = {};
+            if (!map[g.student_id][g.date]) map[g.student_id][g.date] = [];
+            map[g.student_id][g.date].push(g);
+        });
+        return map;
+    }, [filteredGrades]);
+
+    const { absencePct, avgGradeVal, totalSummatives } = React.useMemo(() => {
+        let totalEntries = 0;
+        let totalAbsences = 0;
+        let totalNumericPoints = 0;
+        let numericCount = 0;
+        let summativesCount = 0;
+
+        filteredGrades.forEach(g => {
+            totalEntries++;
+            if (g.point === -2 || g.checked === false) {
+                totalAbsences++;
+            }
+            if (typeof g.point === 'number' && g.point >= 0) {
+                totalNumericPoints += g.point;
+                numericCount++;
+            }
+            if (g.pointType === 3) {
+                summativesCount++;
+            }
+        });
+
+        const absPct = totalEntries > 0 ? ((totalAbsences / totalEntries) * 100).toFixed(0) : '0';
+        const avgVal = numericCount > 0 ? (totalNumericPoints / numericCount).toFixed(1) : '-';
+
+        return {
+            absencePct: absPct,
+            avgGradeVal: avgVal,
+            totalSummatives: summativesCount
+        };
+    }, [filteredGrades]);
+
+    const filteredStudents = mobileSearchQuery.trim()
+        ? sortedStudents.filter(s => `${s.name} ${s.surname}`.toLowerCase().includes(mobileSearchQuery.toLowerCase()))
+        : sortedStudents;
+
+    const currentSubjectObj = subjects.find(s => String(s._id) === String(selectedSubject)) || availableTeacherSubjects?.find(s => String(s.id) === String(selectedSubject));
+    const displaySubjectTitle = currentSubjectObj ? currentSubjectObj.name : (selectedSubject !== 'all' && subjectName ? subjectName : (selectedSubject === 'all' ? 'ყველა საგანი' : ''));
+
+    if (loading) {
+        return (
+            <div style={{ color: '#2e1065', textAlign: 'center', marginTop: '60px', fontSize: '18px', fontWeight: 700 }}>
+                იტვირთება...
+            </div>
+        );
+    }
+
+    return (
+        <div style={{
+            width: '100%',
+            minHeight: '100vh',
+            background: pageBg,
+            color: textColor,
+            padding: isMobileScreen ? '12px 6px' : '24px 16px',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
+            {/* Main Card Container */}
+            <div style={{
+                width: '100%',
+                maxWidth: '1350px',
+                background: cardBg,
+                borderRadius: isMobileScreen ? '16px' : '24px',
+                boxShadow: isDark ? '0 10px 40px rgba(0, 0, 0, 0.4)' : '0 10px 40px rgba(0, 0, 0, 0.05)',
+                border: `1px solid ${cardBorder}`,
+                padding: isMobileScreen ? '16px 10px' : '32px 28px',
+                boxSizing: 'border-box',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: isMobileScreen ? '16px' : '24px'
+            }}>
+                {/* Top Action Header */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    paddingBottom: '16px',
+                    borderBottom: `1px solid ${cardBorder}`
+                }}>
+                    {/* Left: Back Button */}
+                    <button
+                        onClick={onBackClick}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: isDark ? '#1f2937' : '#ffffff',
+                            border: `1px solid ${isDark ? '#374151' : '#cbd5e1'}`,
+                            color: isDark ? '#ffffff' : '#2e1065',
+                            fontWeight: 800,
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            padding: '8px 14px',
+                            borderRadius: '12px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <ArrowLeftIcon size={18} /> უკან დაბრუნება
+                    </button>
+
+                    {/* View Mode Switcher (Cards vs Matrix) */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: isDark ? '#1f2937' : '#f1f5f9',
+                        padding: '4px',
+                        borderRadius: '12px',
+                        border: `1px solid ${isDark ? '#374151' : '#cbd5e1'}`
+                    }}>
+                        <button
+                            type="button"
+                            onClick={() => setMobileViewMode('cards')}
+                            style={{
+                                background: mobileViewMode === 'cards' ? '#2563eb' : 'transparent',
+                                color: mobileViewMode === 'cards' ? '#ffffff' : (isDark ? '#cbd5e1' : '#475569'),
+                                border: 'none',
+                                padding: '6px 14px',
+                                borderRadius: '8px',
+                                fontWeight: 800,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            🎴 ბარათები
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setMobileViewMode('matrix')}
+                            style={{
+                                background: mobileViewMode === 'matrix' ? '#2563eb' : 'transparent',
+                                color: mobileViewMode === 'matrix' ? '#ffffff' : (isDark ? '#cbd5e1' : '#475569'),
+                                border: 'none',
+                                padding: '6px 14px',
+                                borderRadius: '8px',
+                                fontWeight: 800,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                        >
+                            📊 ცხრილი
+                        </button>
+                    </div>
+
+                    {/* Right: Subject Header */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {isRefreshing && (
+                            <span style={{ fontSize: '11px', fontWeight: 800, color: '#2563eb', background: 'rgba(37, 99, 235, 0.1)', padding: '4px 8px', borderRadius: '10px', border: '1px solid rgba(37, 99, 235, 0.2)' }}>
+                                🔄 განახლება...
+                            </span>
+                        )}
+                        <span style={{ fontSize: isMobileScreen ? '15px' : '18px', fontWeight: 800, color: headingColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            საგანი: <span style={{ color: accentTitleColor }}>{displaySubjectTitle}</span>
+                        </span>
+                    </div>
+                </div>
+
+                {/* Color Legend */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px', flexWrap: 'wrap', padding: '4px 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '14px', height: '14px', background: '#fef08a', border: '1px solid #fde047', borderRadius: '4px' }}></span>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: subTextColor }}>საშინაო</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '14px', height: '14px', background: '#84c4cb', border: '1px solid #5eead4', borderRadius: '4px' }}></span>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: subTextColor }}>აღრიცხვა / საკლასო </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ width: '14px', height: '14px', background: '#f4978e', border: '1px solid #f87171', borderRadius: '4px' }}></span>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: subTextColor }}>შემაჯამებელი</span>
+                    </div>
+                </div>
+
+                {/* Academic Year & Semester Selector Tabs */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                    {/* Available Teacher Subjects Selector Pills */}
+                    {availableTeacherSubjects && availableTeacherSubjects.length > 1 && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap',
+                            justifyContent: 'center',
+                            background: isDark ? '#111827' : '#f8fafc',
+                            padding: '10px 14px',
+                            borderRadius: '16px',
+                            border: `1px solid ${cardBorder}`,
+                            width: '100%',
+                            boxSizing: 'border-box'
+                        }}>
+                            <span style={{ fontSize: '13px', fontWeight: 800, color: headingColor, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                📖 აირჩიეთ საგანი:
+                            </span>
+                            {availableTeacherSubjects.map(subj => {
+                                const isActive = String(selectedSubject) === String(subj.id);
+                                return (
+                                    <button
+                                        key={subj.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedSubject(subj.id);
+                                            if (onSubjectChange) onSubjectChange(subj.id, subj.name);
+                                        }}
+                                        style={{
+                                            background: isActive ? (selectedColor || '#2e1065') : (isDark ? '#1f2937' : '#ffffff'),
+                                            color: isActive ? '#ffffff' : (isDark ? '#cbd5e1' : '#2e1065'),
+                                            border: isActive ? `1.5px solid ${selectedColor || '#2e1065'}` : `1.5px solid ${isDark ? '#374151' : '#cbd5e1'}`,
+                                            borderRadius: '12px',
+                                            padding: '6px 14px',
+                                            fontWeight: 800,
+                                            fontSize: '13px',
+                                            cursor: 'pointer',
+                                            boxShadow: isActive ? '0 4px 12px rgba(46, 16, 101, 0.25)' : 'none',
+                                            transition: 'all 0.2s'
+                                        }}
+                                    >
+                                        {subj.name}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {/* Academic Year Pills */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                        {detectedAcademicYears.map(yr => {
+                            const isActive = academicYearFilter === yr;
+                            return (
+                                <button
+                                    key={yr}
+                                    type="button"
+                                    onClick={() => setAcademicYearFilter(yr)}
+                                    style={{
+                                        background: isActive ? '#2e1065' : '#ffffff',
+                                        color: isActive ? '#ffffff' : '#2e1065',
+                                        border: isActive ? '1.5px solid #2e1065' : '1.5px solid #cbd5e1',
+                                        borderRadius: '10px',
+                                        padding: '6px 18px',
+                                        fontWeight: 800,
+                                        fontSize: '13px',
+                                        cursor: 'pointer',
+                                        boxShadow: isActive ? '0 4px 12px rgba(46, 16, 101, 0.25)' : 'none',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {yr}
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Semester Pills */}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <button
+                            type="button"
+                            onClick={() => setSemesterFilter('1')}
+                            style={{
+                                background: semesterFilter === '1' ? '#2e1065' : '#ffffff',
+                                color: semesterFilter === '1' ? '#ffffff' : '#2e1065',
+                                border: semesterFilter === '1' ? '1.5px solid #2e1065' : '1.5px solid #cbd5e1',
+                                borderRadius: '10px',
+                                padding: '6px 16px',
+                                fontWeight: 800,
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            პირველი სემესტრი
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSemesterFilter('2')}
+                            style={{
+                                background: semesterFilter === '2' ? '#2e1065' : '#ffffff',
+                                color: semesterFilter === '2' ? '#ffffff' : '#2e1065',
+                                border: semesterFilter === '2' ? '1.5px solid #2e1065' : '1.5px solid #cbd5e1',
+                                borderRadius: '10px',
+                                padding: '6px 16px',
+                                fontWeight: 800,
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            მეორე სემესტრი
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setSemesterFilter('all')}
+                            style={{
+                                background: semesterFilter === 'all' ? '#2e1065' : '#ffffff',
+                                color: semesterFilter === 'all' ? '#ffffff' : '#2e1065',
+                                border: semesterFilter === 'all' ? '1.5px solid #2e1065' : '1.5px solid #cbd5e1',
+                                borderRadius: '10px',
+                                padding: '6px 14px',
+                                fontWeight: 800,
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            ყველა
+                        </button>
+                    </div>
+                </div>
+
+                {/* Stats Summary Banner */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                    margin: '2px 0 6px 0'
+                }}>
+                    <div style={{
+                        background: isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2',
+                        border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.3)' : '#fee2e2'}`,
+                        padding: '8px 16px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <span style={{ fontSize: '16px' }}>🚨</span>
+                        <div>
+                            <div style={{ fontSize: '10px', color: isDark ? '#fca5a5' : '#ef4444', fontWeight: 800, textTransform: 'uppercase' }}>
+                                გაცდენების %
+                            </div>
+                            <div style={{ fontSize: '15px', fontWeight: 900, color: isDark ? '#f87171' : '#dc2626' }}>
+                                {absencePct}%
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        background: isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0fdf4',
+                        border: `1px solid ${isDark ? 'rgba(34, 197, 94, 0.3)' : '#dcfce7'}`,
+                        padding: '8px 16px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <span style={{ fontSize: '16px' }}>📊</span>
+                        <div>
+                            <div style={{ fontSize: '10px', color: isDark ? '#86efac' : '#16a34a', fontWeight: 800, textTransform: 'uppercase' }}>
+                                საშუალო ნიშანი
+                            </div>
+                            <div style={{ fontSize: '15px', fontWeight: 900, color: isDark ? '#4ade80' : '#15803d' }}>
+                                {avgGradeVal}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff',
+                        border: `1px solid ${isDark ? 'rgba(59, 130, 246, 0.3)' : '#dbeafe'}`,
+                        padding: '8px 16px',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                    }}>
+                        <span style={{ fontSize: '16px' }}>📝</span>
+                        <div>
+                            <div style={{ fontSize: '10px', color: isDark ? '#93c5fd' : '#2563eb', fontWeight: 800, textTransform: 'uppercase' }}>
+                                დაწერილი შემაჯამებლები
+                            </div>
+                            <div style={{ fontSize: '15px', fontWeight: 900, color: isDark ? '#60a5fa' : '#1d4ed8' }}>
+                                {totalSummatives}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* SEARCH INPUT FOR MOBILE / CARDS VIEW */}
+                {(mobileViewMode === 'cards' || isMobileScreen) && (
+                    <div style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}>
+                        <input
+                            type="text"
+                            value={mobileSearchQuery}
+                            onChange={(e) => setMobileSearchQuery(e.target.value)}
+                            placeholder="🔍 მოსწავლის ძებნა (სახელი / გვარი)..."
+                            style={{
+                                width: '100%',
+                                padding: '12px 18px',
+                                borderRadius: '14px',
+                                background: isDark ? '#1f2937' : '#f8fafc',
+                                border: `1.5px solid ${isDark ? '#374151' : '#cbd5e1'}`,
+                                color: textColor,
+                                fontSize: '14px',
+                                fontWeight: 700,
+                                boxSizing: 'border-box'
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* VIEW MODE: CARDS / ACCORDION (MOBILE FRIENDLY) */}
+                {mobileViewMode === 'cards' ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
+                        {filteredStudents.length > 0 ? (
+                            filteredStudents.map((student) => {
+                                const isExpanded = expandedMobileStudentId === student._id || filteredStudents.length === 1;
+
+                                const studentAbsenceCount = allDatesArr.reduce((count, date) => {
+                                    const gradeList = studentDateGrades[student._id]?.[date] || [];
+                                    const isAbsent = gradeList.some(g => g.point === -2 || g.checked === false);
+                                    return count + (isAbsent ? 1 : 0);
+                                }, 0);
+
+                                const studentGrades = displayGrades.filter(g => String(g.student_id) === String(student._id));
+                                const studentNumericGrades = studentGrades.filter(isNumericGrade);
+                                const studentAvg = studentNumericGrades.length > 0
+                                    ? (studentNumericGrades.reduce((sum, g) => sum + (typeof g.point === 'number' ? g.point : parseInt(g.point, 10)), 0) / studentNumericGrades.length).toFixed(1)
+                                    : '-';
+
+                                return (
+                                    <div
+                                        key={student._id}
+                                        style={{
+                                            background: isDark ? '#111827' : '#ffffff',
+                                            border: `1.5px solid ${isExpanded ? (selectedColor || '#2563eb') : cardBorder}`,
+                                            borderRadius: '16px',
+                                            overflow: 'hidden',
+                                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.04)',
+                                            transition: 'all 0.2s ease'
+                                        }}
+                                    >
+                                        {/* Card Header (Tap to expand) */}
+                                        <div
+                                            onClick={() => setExpandedMobileStudentId(isExpanded ? null : student._id)}
+                                            style={{
+                                                padding: '16px 18px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: '12px',
+                                                cursor: 'pointer',
+                                                background: isExpanded ? (isDark ? '#1f2937' : '#f8fafc') : 'transparent'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                                                <div style={{
+                                                    width: '40px',
+                                                    height: '40px',
+                                                    borderRadius: '50%',
+                                                    background: selectedColor || '#2563eb',
+                                                    color: 'white',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontWeight: 900,
+                                                    fontSize: '15px',
+                                                    flexShrink: 0
+                                                }}>
+                                                    {student.surname?.[0] ?? ''}{student.name?.[0] ?? ''}
+                                                </div>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ fontWeight: 800, fontSize: '15px', color: headingColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {student.surname} {student.name}
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                                        <span style={{
+                                                            fontSize: '11px',
+                                                            fontWeight: 800,
+                                                            background: studentAbsenceCount > 0 ? '#fee2e2' : '#f1f5f9',
+                                                            color: studentAbsenceCount > 0 ? '#dc2626' : '#64748b',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '6px'
+                                                        }}>
+                                                            {studentAbsenceCount} გაცდენა
+                                                        </span>
+                                                        <span style={{
+                                                            fontSize: '11px',
+                                                            fontWeight: 800,
+                                                            background: studentAvg !== '-' ? '#dcfce7' : '#f1f5f9',
+                                                            color: studentAvg !== '-' ? '#15803d' : '#64748b',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '6px'
+                                                        }}>
+                                                            საშ: {studentAvg}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div style={{ fontSize: '16px', fontWeight: 800, color: subTextColor, flexShrink: 0 }}>
+                                                {isExpanded ? '▲' : '▼'}
+                                            </div>
+                                        </div>
+
+                                        {/* Card Expanded Content */}
+                                        {isExpanded && (
+                                            <div style={{ padding: '16px 18px', borderTop: `1px solid ${cardBorder}`, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '12px', fontWeight: 800, color: subTextColor, textTransform: 'uppercase' }}>
+                                                        ნიშნების ისტორია ({dateColumns.length} სვეტი)
+                                                    </span>
+                                                </div>
+
+                                                {dateColumns.length === 0 ? (
+                                                    <div style={{ padding: '16px', textAlign: 'center', color: subTextColor, fontSize: '13px' }}>
+                                                        ამ პერიოდში ნიშნები არ არის ჩაწერილი
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px' }}>
+                                                        {dateColumns.map(col => {
+                                                            const gradeList = studentColumnGrades[student._id]?.[col.key] || [];
+                                                            const primaryGrade = gradeList[0] || null;
+                                                            const datePointType = columnPointTypes[col.key] || 2;
+                                                            const effectivePointType = primaryGrade ? (primaryGrade.pointType || datePointType) : datePointType;
+
+                                                            let bgPill = '#84c4cb'; // Mint Classwork
+                                                            let typeTitle = 'საკლასო';
+                                                            if (effectivePointType === 3) {
+                                                                bgPill = '#f4978e'; // Summative Red
+                                                                typeTitle = 'შემაჯამებელი';
+                                                            } else if (effectivePointType === 1) {
+                                                                bgPill = '#fef08a'; // Homework Yellow
+                                                                typeTitle = 'საშინაო';
+                                                            }
+
+                                                            return (
+                                                                <div
+                                                                    key={col.key}
+                                                                    style={{
+                                                                        background: bgPill,
+                                                                        borderRadius: '12px',
+                                                                        padding: '10px 12px',
+                                                                        cursor: 'default',
+                                                                        display: 'flex',
+                                                                        flexDirection: 'column',
+                                                                        justifyContent: 'space-between',
+                                                                        gap: '6px',
+                                                                        boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+                                                                        border: '1.5px solid rgba(255,255,255,0.7)',
+                                                                        transition: 'transform 0.15s'
+                                                                    }}
+                                                                >
+                                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', fontWeight: 800, color: '#1e293b' }}>
+                                                                        <span>{col.label}</span>
+                                                                        <span style={{ fontSize: '10px', opacity: 0.8 }}>{typeTitle}</span>
+                                                                    </div>
+
+                                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', margin: '4px 0' }}>
+                                                                        {gradeList.length > 0 ? (
+                                                                            gradeList.map((g, gIdx) => {
+                                                                                const isAbsent = g.point === -2 || g.checked === false;
+                                                                                const displayVal = getSingleGradeDisplay(g);
+                                                                                const isNumber = typeof g.point === 'number' && g.point >= 0;
+                                                                                const markColor = isAbsent ? '#dc2626' : isNumber ? '#0f172a' : '#1d4ed8';
+
+                                                                                return (
+                                                                                    <span key={g._id || gIdx} style={{ fontSize: '20px', fontWeight: 900, color: markColor }}>
+                                                                                        {isAbsent ? 'X' : displayVal}
+                                                                                    </span>
+                                                                                );
+                                                                            })
+                                                                        ) : (
+                                                                            <span style={{ fontSize: '12px', opacity: 0.5, fontWeight: 700 }}>—</span>
+                                                                        )}
+                                                                    </div>
+
+                                                                    {primaryGrade?.comment && (
+                                                                        <div style={{ fontSize: '11px', color: '#0f172a', fontWeight: 600, background: 'rgba(255,255,255,0.6)', padding: '2px 6px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                            💬 {primaryGrade.comment}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '40px', color: subTextColor, fontWeight: 700 }}>
+                                მოსწავლეები ვერ მოიძებნა
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    /* VIEW MODE: TABLE MATRIX GRID */
+                    <div style={{
+                        width: '100%',
+                        overflowX: 'auto',
+                        WebkitOverflowScrolling: 'touch',
+                        borderRadius: '12px',
+                        border: '1px solid #cbd5e1',
+                        boxShadow: '0 4px 15px rgba(0, 0, 0, 0.03)'
+                    }}>
+                        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: isMobileScreen ? '650px' : '800px' }}>
+                            <thead>
+                                <tr style={{ background: '#ffffff' }}>
+                                    <th style={{
+                                        width: isMobileScreen ? '200px' : '300px',
+                                        minWidth: isMobileScreen ? '200px' : '280px',
+                                        maxWidth: isMobileScreen ? '200px' : '300px',
+                                        position: 'sticky',
+                                        left: 0,
+                                        zIndex: 10,
+                                        background: '#ffffff',
+                                        color: '#64748b',
+                                        fontWeight: 800,
+                                        fontSize: '11px',
+                                        padding: isMobileScreen ? '8px 5px' : '10px 10px',
+                                        textAlign: 'left',
+                                        borderRight: '2px solid #e2e8f0',
+                                        borderBottom: '2px solid #cbd5e1',
+                                        textTransform: 'uppercase'
+                                    }}>
+                                        მოსწავლე
+                                    </th>
+                                    {dateColumns.map(col => (
+                                        <th key={col.key} style={{
+                                            textAlign: 'center',
+                                            minWidth: '60px',
+                                            padding: '10px 4px',
+                                            color: '#64748b',
+                                            fontWeight: 700,
+                                            fontSize: '12px',
+                                            borderRight: '1px solid #f1f5f9',
+                                            borderBottom: '2px solid #cbd5e1',
+                                            background: '#ffffff'
+                                        }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                                                <span>{col.label}</span>
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {students.length > 0 ? students.map((student, idx) => {
+                                    const studentAbsenceCount = dateColumns.reduce((count, col) => {
+                                        const gradeList = studentColumnGrades[student._id]?.[col.key] || [];
+                                        const isAbsent = gradeList.some(g => g.point === -2 || g.checked === false);
+                                        return count + (isAbsent ? 1 : 0);
+                                    }, 0);
+
+                                    return (
+                                        <tr key={student._id}>
+                                            {/* Student Sticky Name Column */}
+                                            <td style={{
+                                                fontWeight: 700,
+                                                color: '#0f172a',
+                                                position: 'sticky',
+                                                left: 0,
+                                                zIndex: 5,
+                                                background: '#ffffff',
+                                                borderRight: '2px solid #e2e8f0',
+                                                borderBottom: '1px solid #e2e8f0',
+                                                padding: isMobileScreen ? '8px 5px' : '10px 10px',
+                                                width: isMobileScreen ? '110px' : '140px',
+                                                minWidth: isMobileScreen ? '100px' : '120px',
+                                                maxWidth: isMobileScreen ? '115px' : '150px'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                                                    <span style={{ fontSize: isMobileScreen ? '11px' : '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${student.surname} ${student.name}`}>
+                                                        {student.surname} {student.name}
+                                                    </span>
+                                                    {!isMobileScreen && (
+                                                        <span style={{
+                                                            fontSize: '10px',
+                                                            fontWeight: 800,
+                                                            background: studentAbsenceCount > 0 ? '#fee2e2' : '#f1f5f9',
+                                                            color: studentAbsenceCount > 0 ? '#dc2626' : '#64748b',
+                                                            padding: '1px 5px',
+                                                            borderRadius: '5px',
+                                                            whiteSpace: 'nowrap',
+                                                            flexShrink: 0
+                                                        }}>
+                                                            {studentAbsenceCount}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+
+                                        {/* Date Cells */}
+                                        {dateColumns.map(col => {
+                                            const gradeList = studentColumnGrades[student._id]?.[col.key] || [];
+                                            const primaryGrade = gradeList[0] || null;
+                                            const datePointType = columnPointTypes[col.key] || 2;
+                                            const effectivePointType = primaryGrade ? (primaryGrade.pointType || datePointType) : datePointType;
+
+                                            let cellBgColor = '#84c4cb'; // Default Mint / Classwork
+                                            if (effectivePointType === 3) {
+                                                cellBgColor = '#f4978e'; // Summative Red / Salmon
+                                            } else if (effectivePointType === 1) {
+                                                cellBgColor = '#fef08a'; // Homework Yellow
+                                            }
+
+                                            return (
+                                                <td
+                                                    key={col.key}
+                                                    onClick={() => openEditModalForGrade(student, col.date, primaryGrade, col.lessonNum)}
+                                                    title={primaryGrade ? `დააჭირეთ ჩასასწორებლად (${col.label})` : `დააჭირეთ ნიშნის დასამატებლად (${col.label})`}
+                                                    style={{
+                                                        textAlign: 'center',
+                                                        padding: '8px 3px',
+                                                        background: cellBgColor,
+                                                        border: '1.5px solid #ffffff',
+                                                        cursor: 'pointer',
+                                                        verticalAlign: 'middle',
+                                                        transition: 'filter 0.15s'
+                                                    }}
+                                                    onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.08)'}
+                                                    onMouseLeave={e => e.currentTarget.style.filter = 'brightness(1)'}
+                                                >
+                                                    {gradeList.length > 0 ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', flexWrap: 'wrap', maxWidth: '140px', margin: '0 auto' }}>
+                                                            {gradeList.map((g, gIdx) => {
+                                                                const isAbsent = g.point === -2 || g.checked === false;
+                                                                const displayVal = getSingleGradeDisplay(g);
+                                                                const isNumber = typeof g.point === 'number' && g.point >= 0;
+                                                                const hasComment = Boolean(g.comment && g.comment.trim() !== '');
+
+                                                                let markColor = '#1d4ed8'; // Navy Blue for checkmark
+                                                                if (isAbsent) markColor = '#dc2626'; // Red for X
+                                                                else if (isNumber) markColor = '#0f172a'; // Black/Navy for numerical score
+
+                                                                return (
+                                                                    <span
+                                                                        key={g._id || gIdx}
+                                                                        style={{
+                                                                            fontSize: isMobileScreen ? '15px' : '17px',
+                                                                            fontWeight: 900,
+                                                                            color: markColor,
+                                                                            lineHeight: 1,
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            gap: '1px'
+                                                                        }}
+                                                                    >
+                                                                        {isAbsent ? 'X' : displayVal}
+                                                                        {hasComment && !isAbsent && <span style={{ fontSize: '10px', marginLeft: '1px' }}>💬</span>}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : null}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                );
+                            }) : (
+                                    <tr>
+                                        <td colSpan={dateColumns.length + 1} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                            მოსწავლეები ვერ მოიძებნა
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* Toast Banner */}
+            {toast && (
+                <div style={{
+                    position: 'fixed',
+                    top: '24px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    zIndex: 10000,
+                    background: toast.type === 'success' ? '#10b981' : '#ef4444',
+                    color: 'white',
+                    padding: '12px 24px',
+                    borderRadius: '999px',
+                    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+                    fontWeight: 700,
+                    fontSize: '15px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                }}>
+                    {toast.message}
+                </div>
+            )}
+
+            {/* Modal for editing / adding grade */}
+            {editModalOpen && selectedCell && (() => {
+                const activeSubject = subjects.find(s => s._id === editSubjectId);
+                const isProjectSubject = activeSubject
+                    ? ((activeSubject as any).is_project || (activeSubject as any).is_pass_fail || (activeSubject as any).type === 'project' || /პროექტი|ჩათვლა|პროექტული/i.test(activeSubject.name))
+                    : false;
+                const canUserEditDate = isDateEditableForUser(selectedCell.date, isAdmin);
+
+                return typeof window !== 'undefined' ? createPortal(
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        background: 'rgba(15, 23, 42, 0.65)',
+                        backdropFilter: 'blur(8px)',
+                        zIndex: 999999,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px'
+                    }}>
+                        <div style={{
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '24px',
+                            padding: '28px',
+                            width: '100%',
+                            maxWidth: '480px',
+                            boxShadow: '0 25px 60px rgba(0, 0, 0, 0.2)',
+                            color: '#0f172a',
+                            margin: 'auto'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
+                                <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: '#2e1065' }}>
+                                    {selectedCell.targetGrade ? 'ნიშნის ჩასწორება' : 'ნიშნის დამატება'}
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditModalOpen(false)}
+                                    style={{
+                                        background: '#f1f5f9',
+                                        border: 'none',
+                                        color: '#64748b',
+                                        borderRadius: '50%',
+                                        width: '32px',
+                                        height: '32px',
+                                        fontSize: '16px',
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
+                                {selectedCell.student.surname} {selectedCell.student.name} — {formatDate(selectedCell.date)} ({selectedCell.date})
+                            </p>
+
+                            {!canUserEditDate && (
+                                <div style={{
+                                    background: '#fef2f2',
+                                    border: '1px solid #fca5a5',
+                                    color: '#991b1b',
+                                    padding: '12px 16px',
+                                    borderRadius: '12px',
+                                    fontSize: '13px',
+                                    fontWeight: 700,
+                                    marginBottom: '18px',
+                                    lineHeight: 1.4
+                                }}>
+                                    ⚠️ მასწავლებელს ნიშნის შეტანა/ჩასწორება შეუძლია მხოლოდ ბოლო 2 კვირის (14 დღის) ვადით. 2 კვირაზე ძველი ნიშნების ჩასასწორებლად მიმართეთ ადმინისტრაციას.
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        საგანი:
+                                    </label>
+                                    <div style={{
+                                        padding: '10px 14px',
+                                        borderRadius: '10px',
+                                        background: '#e0e7ff',
+                                        border: '1px solid #c7d2fe',
+                                        color: '#4338ca',
+                                        fontWeight: 800,
+                                        fontSize: '15px',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center'
+                                    }}>
+                                        <span>{activeSubject ? activeSubject.name : (subjectName || 'საგანი')}</span>
+                                        {isProjectSubject && (
+                                            <span style={{ fontSize: '11px', background: '#f3e8ff', border: '1px solid #d8b4fe', color: '#9333ea', padding: '2px 8px', borderRadius: '12px' }}>
+                                                პროექტული (ჩათვლა)
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        სწრებადობა და სტატუსი:
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button
+                                            type="button"
+                                            disabled={!canUserEditDate}
+                                            onClick={() => {
+                                                const wasAbsent = !isAttending;
+                                                setIsAttending(true);
+                                                if (wasAbsent) {
+                                                    setEditPoint(isProjectSubject ? 'ჩთ' : 'none');
+                                                }
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px',
+                                                borderRadius: '10px',
+                                                border: isAttending ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                                                background: isAttending ? '#dcfce7' : '#f8fafc',
+                                                color: isAttending ? '#15803d' : '#334155',
+                                                fontWeight: 800,
+                                                fontSize: '14px',
+                                                cursor: canUserEditDate ? 'pointer' : 'not-allowed',
+                                                opacity: canUserEditDate ? 1 : 0.6,
+                                                transition: 'all 0.15s'
+                                            }}
+                                        >
+                                            ✓ ესწრება
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={!canUserEditDate}
+                                            onClick={() => {
+                                                setIsAttending(false);
+                                                setEditPoint('X');
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '10px',
+                                                borderRadius: '10px',
+                                                border: !isAttending ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                                                background: !isAttending ? '#fee2e2' : '#f8fafc',
+                                                color: !isAttending ? '#b91c1c' : '#334155',
+                                                fontWeight: 800,
+                                                fontSize: '14px',
+                                                cursor: canUserEditDate ? 'pointer' : 'not-allowed',
+                                                opacity: canUserEditDate ? 1 : 0.6,
+                                                transition: 'all 0.15s'
+                                            }}
+                                        >
+                                            ✗ არ ესწრება (გაცდენა)
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        {isProjectSubject ? 'შეფასება (პროექტული):' : 'ქულები (0 – 10):'}
+                                    </label>
+
+                                    {!isAttending ? (
+                                        <div style={{ padding: '12px', borderRadius: '10px', background: '#fee2e2', border: '1px solid #fca5a5', color: '#b91c1c', fontSize: '13px', textAlign: 'center', fontWeight: 600 }}>
+                                            ⚠️ მოსწავლე არ ესწრება (გაცდენა). ნიშანი ვერ დაეწერება.
+                                        </div>
+                                    ) : isProjectSubject ? (
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <button
+                                                type="button"
+                                                disabled={!canUserEditDate}
+                                                onClick={() => setEditPoint('ჩთ')}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '12px',
+                                                    borderRadius: '10px',
+                                                    border: editPoint === 'ჩთ' ? '2px solid #9333ea' : '1px solid #cbd5e1',
+                                                    background: editPoint === 'ჩთ' ? '#f3e8ff' : '#f8fafc',
+                                                    color: editPoint === 'ჩთ' ? '#7e22ce' : '#334155',
+                                                    fontWeight: 800,
+                                                    fontSize: '15px',
+                                                    cursor: canUserEditDate ? 'pointer' : 'not-allowed'
+                                                }}
+                                            >
+                                                ჩთ (ჩათვლა)
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={!canUserEditDate}
+                                                onClick={() => setEditPoint('არა ჩთ')}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '12px',
+                                                    borderRadius: '10px',
+                                                    border: editPoint === 'არა ჩთ' ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                                                    background: editPoint === 'არა ჩთ' ? '#fee2e2' : '#f8fafc',
+                                                    color: editPoint === 'არა ჩთ' ? '#b91c1c' : '#334155',
+                                                    fontWeight: 800,
+                                                    fontSize: '15px',
+                                                    cursor: canUserEditDate ? 'pointer' : 'not-allowed'
+                                                }}
+                                            >
+                                                არა ჩთ (არ ჩაეთვალა)
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <button
+                                                type="button"
+                                                disabled={!canUserEditDate}
+                                                onClick={() => setEditPoint('none')}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 0',
+                                                    borderRadius: '10px',
+                                                    border: (editPoint === 'none' || editPoint === '') ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                                    background: (editPoint === 'none' || editPoint === '') ? '#dbeafe' : '#f8fafc',
+                                                    color: (editPoint === 'none' || editPoint === '') ? '#1d4ed8' : '#334155',
+                                                    fontWeight: 800,
+                                                    fontSize: '14px',
+                                                    cursor: canUserEditDate ? 'pointer' : 'not-allowed',
+                                                    opacity: canUserEditDate ? 1 : 0.6,
+                                                    transition: 'all 0.12s'
+                                                }}
+                                            >
+                                                ნიშნის გარეშე
+                                            </button>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                                                {['10', '9', '8', '7', '6', '5', '4', '3', '2', '1'].map((pt) => {
+                                                    const isSelected = editPoint === pt;
+                                                    return (
+                                                        <button
+                                                            key={pt}
+                                                            type="button"
+                                                            disabled={!canUserEditDate}
+                                                            onClick={() => setEditPoint(pt)}
+                                                            style={{
+                                                                padding: '12px 0',
+                                                                borderRadius: '10px',
+                                                                border: isSelected ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                                                background: isSelected ? '#dbeafe' : '#f8fafc',
+                                                                color: isSelected ? '#1d4ed8' : '#334155',
+                                                                fontWeight: 800,
+                                                                fontSize: '16px',
+                                                                cursor: canUserEditDate ? 'pointer' : 'not-allowed',
+                                                                opacity: canUserEditDate ? 1 : 0.6,
+                                                                transition: 'all 0.12s'
+                                                            }}
+                                                        >
+                                                            {pt}
+                                                        </button>
+                                                    );
+                                                })}
+                                                <button
+                                                    type="button"
+                                                    disabled={!canUserEditDate}
+                                                    onClick={() => setEditPoint('0')}
+                                                    style={{
+                                                        gridColumn: 'span 5',
+                                                        padding: '10px 0',
+                                                        borderRadius: '10px',
+                                                        border: editPoint === '0' ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                                                        background: editPoint === '0' ? '#fee2e2' : '#f8fafc',
+                                                        color: editPoint === '0' ? '#b91c1c' : '#334155',
+                                                        fontWeight: 800,
+                                                        fontSize: '16px',
+                                                        cursor: canUserEditDate ? 'pointer' : 'not-allowed',
+                                                        opacity: canUserEditDate ? 1 : 0.6,
+                                                        transition: 'all 0.12s'
+                                                    }}
+                                                >
+                                                    0
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        ნიშნის ტიპი:
+                                    </label>
+                                    <select
+                                        value={editPointType}
+                                        disabled={!canUserEditDate}
+                                        onChange={(e) => setEditPointType(Number(e.target.value))}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 14px',
+                                            borderRadius: '10px',
+                                            border: '1px solid #cbd5e1',
+                                            background: '#ffffff',
+                                            color: '#0f172a',
+                                            fontSize: '14px',
+                                            fontWeight: 600,
+                                            opacity: canUserEditDate ? 1 : 0.6
+                                        }}
+                                    >
+                                        <option value={1}>🔵 საშინაო (ლურჯი)</option>
+                                        <option value={2}>🟡 აღრიცხვა / საკლასო (ყვითელი)</option>
+                                        <option value={3}>🔴 შემაჯამებელი (წითელი)</option>
+                                    </select>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveGrade}
+                                        disabled={savingGrade || !canUserEditDate}
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px 18px',
+                                            borderRadius: '10px',
+                                            background: (!canUserEditDate || savingGrade) ? '#cbd5e1' : '#10b981',
+                                            border: 'none',
+                                            color: 'white',
+                                            fontWeight: 700,
+                                            fontSize: '14px',
+                                            cursor: (!canUserEditDate || savingGrade) ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        {savingGrade ? 'ინახება...' : 'შენახვა'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditModalOpen(false)}
+                                        disabled={savingGrade}
+                                        style={{
+                                            padding: '12px 18px',
+                                            borderRadius: '10px',
+                                            background: '#f1f5f9',
+                                            border: '1px solid #cbd5e1',
+                                            color: '#475569',
+                                            fontWeight: 600,
+                                            fontSize: '14px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        გაუქმება
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                ) : null;
+            })()}
+
+            {/* Modal for editing subject details */}
+            {subjectModalOpen && editSubjectTarget && typeof window !== 'undefined' && createPortal(
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    background: 'rgba(15, 23, 42, 0.65)',
+                    backdropFilter: 'blur(8px)',
+                    zIndex: 999999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '24px',
+                        padding: '28px',
+                        width: '100%',
+                        maxWidth: '440px',
+                        boxShadow: '0 25px 60px rgba(0, 0, 0, 0.2)',
+                        color: '#0f172a',
+                        margin: 'auto'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#2e1065' }}>
+                                ⚙️ საგნის ჩასწორება
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setSubjectModalOpen(false)}
+                                style={{
+                                    background: '#f1f5f9',
+                                    border: 'none',
+                                    color: '#64748b',
+                                    borderRadius: '50%',
+                                    width: '30px',
+                                    height: '30px',
+                                    fontSize: '15px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    საგნის დასახელება:
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editSubjectName}
+                                    onChange={(e) => setEditSubjectName(e.target.value)}
+                                    placeholder="შეიყვანეთ საგნის სახელი"
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '10px',
+                                        background: '#f8fafc',
+                                        border: '1px solid #cbd5e1',
+                                        color: '#0f172a',
+                                        fontWeight: 600,
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    საგნის ტიპი (შეფასების სისტემა):
+                                </label>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditSubjectIsProject(false)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 8px',
+                                            borderRadius: '10px',
+                                            border: !editSubjectIsProject ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                            background: !editSubjectIsProject ? '#dbeafe' : '#f8fafc',
+                                            color: !editSubjectIsProject ? '#1d4ed8' : '#334155',
+                                            fontWeight: 800,
+                                            fontSize: '13px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        📊 სტანდარტული (0-10)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditSubjectIsProject(true)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px 8px',
+                                            borderRadius: '10px',
+                                            border: editSubjectIsProject ? '2px solid #9333ea' : '1px solid #cbd5e1',
+                                            background: editSubjectIsProject ? '#f3e8ff' : '#f8fafc',
+                                            color: editSubjectIsProject ? '#7e22ce' : '#334155',
+                                            fontWeight: 800,
+                                            fontSize: '13px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        🎯 პროექტული (ჩათვლა)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveSubject}
+                                    disabled={savingSubject || !editSubjectName.trim()}
+                                    style={{
+                                        flex: 1,
+                                        padding: '12px 18px',
+                                        borderRadius: '10px',
+                                        background: '#2563eb',
+                                        border: 'none',
+                                        color: 'white',
+                                        fontWeight: 700,
+                                        fontSize: '14px',
+                                        cursor: savingSubject ? 'wait' : 'pointer',
+                                        opacity: (!editSubjectName.trim() || savingSubject) ? 0.6 : 1
+                                    }}
+                                >
+                                    {savingSubject ? 'ინახება...' : 'შენახვა'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setSubjectModalOpen(false)}
+                                    disabled={savingSubject}
+                                    style={{
+                                        padding: '12px 18px',
+                                        borderRadius: '10px',
+                                        background: '#f1f5f9',
+                                        border: '1px solid #cbd5e1',
+                                        color: '#475569',
+                                        fontWeight: 600,
+                                        fontSize: '14px',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    გაუქმება
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+        </div>
+    );
+};
+
+export default DetailedGradeHistory;
