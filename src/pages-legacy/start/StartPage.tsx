@@ -110,7 +110,7 @@ const StartPage: React.FC = () => {
                 <header className="start-page-header animate-fade-in-down">
                     <h1 className="start-page-title">
                        სასწავლო პორტალი <br />
-                        <span style={{ color: selectedColor }}>eSchools</span>
+                        <span style={{ color: selectedColor }}>ESHCOOLS</span>
                     </h1>
                     <p className="start-page-subtitle">
                         სკოლის ელექტრონული ჟურნალი
