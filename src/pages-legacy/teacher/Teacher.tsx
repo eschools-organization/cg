@@ -357,6 +357,259 @@ const TeacherChangePasswordModal: React.FC<TeacherChangePasswordModalProps> = ({
   );
 };
 
+const TeacherCalendarTable: React.FC<{ schedule: any[][]; allSubjects: any[]; teachesClasses: any[] }> = ({
+    schedule,
+    allSubjects,
+    teachesClasses,
+  }) => {
+    const { data: calendarEvents } = useQuery<any[]>({
+      queryKey: ['calendar-events-teacher-table'],
+      queryFn: async () => {
+        const res = await fetch('/api/calendar-events');
+        if (!res.ok) return [];
+        return res.json();
+      },
+      refetchInterval: 10000
+    });
+
+    const hasEvents = calendarEvents && calendarEvents.length > 0;
+
+    const getWeekDate = (dayOffsetIndex: number) => {
+      const now = new Date();
+      const currentDay = now.getDay(); // 0=Sun, 1=Mon...6=Sat
+      const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
+      const d = new Date(now);
+      d.setDate(now.getDate() + diffToMon + dayOffsetIndex);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const daysNames = ["ორშაბათი", "სამშაბათი", "ოთხშაბათი", "ხუთშაბათი", "პარასკევი", "შაბათი"];
+    const daysShort = ["ორშ", "სამ", "ოთხ", "ხუთ", "პარ"];
+
+    // Find makeup events for current week
+    const currentWeekEvents = (calendarEvents || []).filter(evt => {
+      const monStr = getWeekDate(0);
+      const satStr = getWeekDate(5);
+      return evt.date >= monStr && evt.date <= satStr;
+    });
+
+    const makeupEventThisWeek = currentWeekEvents.find(e => e.type === 'makeup');
+    const hasSaturdayMakeup = !!makeupEventThisWeek;
+
+    const activeDayIndices = [0, 1, 2, 3, 4];
+    if (hasSaturdayMakeup) {
+      activeDayIndices.push(5); // Saturday
+    }
+    const lessons = [1, 2, 3, 4, 5, 6, 7];
+    const lessonRoman = ["1", "2", "3", "4", "5", "6", "7"];
+
+    return (
+      <div className="schedule-grid-container">
+        {/* Makeup notice about Saturday */}
+        {makeupEventThisWeek && (
+          <div style={{
+            marginBottom: '16px',
+            background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+            border: '1.5px solid #0284c7',
+            borderRadius: '12px',
+            padding: '14px 18px',
+            color: '#0369a1',
+            fontWeight: 700,
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            boxShadow: '0 4px 12px rgba(2, 132, 199, 0.15)'
+          }}>
+            <span style={{ fontSize: '18px' }}>📌</span>
+            <div>
+              <strong>შაბათი ({makeupEventThisWeek.date}):</strong> ტარდება აღდგენითი სწავლა! (აღადგენს <strong>{daysNames[makeupEventThisWeek.replacementDayOfWeek ?? 0]}ს</strong> გაკვეთილებს — {makeupEventThisWeek.title})
+            </div>
+          </div>
+        )}
+
+        {/* Schedule Header */}
+        <div className="schedule-header-grid" style={{
+          gridTemplateColumns: `60px repeat(${activeDayIndices.length}, 1fr)`
+        }}>
+          <div className="schedule-day-pill" style={{ opacity: 0 }}></div> {/* Spacer for time column */}
+          {activeDayIndices.map((dayIdx) => {
+            const dateStr = getWeekDate(dayIdx);
+            const isSat = dayIdx === 5;
+            const eventForDay = (calendarEvents || []).find(e => e.date === dateStr);
+            const isHolidayOnly = eventForDay?.type === 'holiday';
+
+            return (
+              <div
+                key={dayIdx}
+                className="schedule-day-pill"
+                style={{
+                  backgroundColor: isSat ? '#0284c7' : isHolidayOnly ? '#ef4444' : undefined,
+                  color: (isSat || isHolidayOnly) ? '#ffffff' : undefined,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  padding: '6px 4px'
+                }}
+              >
+                <span>{isSat ? `შაბ (აღდგენა)` : daysShort[dayIdx]}</span>
+                {isHolidayOnly && <span style={{ fontSize: '10px', opacity: 0.9 }}>(უქმე)</span>}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Schedule Rows */}
+        {lessons.map((lessonIdx, rowIdx) => (
+          <div key={lessonIdx} className="schedule-row" style={{
+            gridTemplateColumns: `60px repeat(${activeDayIndices.length}, 1fr)`
+          }}>
+            <div className="schedule-time-slot">
+              {lessonRoman[rowIdx]}
+            </div>
+            {activeDayIndices.map((dayIdx) => {
+              const dateStr = getWeekDate(dayIdx);
+              const eventForDay = (calendarEvents || []).find(e => e.date === dateStr);
+              const isHoliday = eventForDay?.type === 'holiday';
+
+              // Effective schedule index
+              let effectiveIdx = dayIdx;
+              if (dayIdx === 5 && makeupEventThisWeek && makeupEventThisWeek.replacementDayOfWeek !== undefined) {
+                effectiveIdx = makeupEventThisWeek.replacementDayOfWeek;
+              }
+
+              // If holiday without makeup replacement on that weekday, empty/remove lessons
+              const slot = isHoliday ? null : schedule[effectiveIdx]?.[lessonIdx - 1];
+
+              const getResolvedSubject = (s: any) => {
+                if (!s) return "";
+                if (s.subject_id) {
+                  const foundSub = allSubjects.find((sub: any) => sub._id === s.subject_id || sub._id?.toString() === s.subject_id?.toString());
+                  if (foundSub?.name) return foundSub.name;
+                }
+                if (s.subjectName && s.subjectName.trim() !== '') {
+                  return s.subjectName;
+                }
+                const matchedCls = teachesClasses.find((c: any) =>
+                  c._id === s.class_id || c.classname === s.className
+                );
+                if (matchedCls && matchedCls.teacherSubjects && matchedCls.teacherSubjects.length === 1) {
+                  return matchedCls.teacherSubjects[0];
+                }
+                return "";
+              };
+              const subjText = getResolvedSubject(slot);
+
+              return (
+                <div
+                  key={dayIdx}
+                  className={`schedule-lesson-card ${slot ? 'active' : ''}`}
+                  style={{
+                    backgroundColor: isHoliday ? 'rgba(239, 68, 68, 0.08)' : undefined,
+                    borderColor: isHoliday ? 'rgba(239, 68, 68, 0.2)' : undefined
+                  }}
+                >
+                  {isHoliday ? (
+                    <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 800 }}>🔴 დასვენება</span>
+                  ) : slot ? (
+                    <div className="schedule-subject-name" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', textAlign: 'center', padding: '4px' }}>
+                      <span style={{ fontWeight: 900, fontSize: '15px', color: '#0f172a' }}>{slot.className}</span>
+                      {subjText ? (
+                        <span style={{
+                          fontSize: '12px',
+                          color: '#2563eb',
+                          fontWeight: '800',
+                          background: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          wordBreak: 'break-word'
+                        }}>
+                          {subjText}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span className="schedule-empty">---</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {/* List of Holidays and Makeup Days AT THE BOTTOM */}
+        <div style={{
+          marginTop: '24px',
+          padding: '18px 20px',
+          background: '#ffffff',
+          borderRadius: '16px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.04)'
+        }}>
+          <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>📅</span> დასვენების და აღდგენის დღეების სია
+          </h4>
+
+          {hasEvents ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {calendarEvents.map((evt) => (
+                <div
+                  key={evt._id || evt.date}
+                  style={{
+                    backgroundColor: evt.type === 'holiday' ? '#fef2f2' : '#f0f9ff',
+                    border: evt.type === 'holiday' ? '1px solid #fecaca' : '1px solid #bae6fd',
+                    borderRadius: '10px',
+                    padding: '10px 14px',
+                    color: evt.type === 'holiday' ? '#991b1b' : '#0369a1',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '8px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      background: evt.type === 'holiday' ? '#ef4444' : '#0284c7',
+                      color: '#ffffff'
+                    }}>
+                      {evt.type === 'holiday' ? '🔴 დასვენება' : '🔵 აღდგენა'}
+                    </span>
+                    <strong>{evt.date}</strong> — <span>{evt.title}</span>
+                  </div>
+
+                  {evt.type === 'makeup' && evt.replacementDayOfWeek !== undefined && (
+                    <span style={{ fontSize: '12px', color: '#0284c7', fontWeight: 800 }}>
+                      📌 შაბათი ({evt.date}) — აღადგენს {daysNames[evt.replacementDayOfWeek]}ს გაკვეთილებს
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '13px', color: '#64748b' }}>
+              დასვენების ან აღდგენის დღეები ჯერ არ არის დამატებული.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Unified Teacher Layout Component
+
 const Teacher: React.FC = () => {
   const BoxWidth = 350;
   const BoxGap = 20;
@@ -647,254 +900,6 @@ const Teacher: React.FC = () => {
   const lessonRoman = ["1", "2", "3", "4", "5", "6", "7"];
 
   // Teacher calendar table component
-  const TeacherCalendarTable: React.FC<{ schedule: any[][] }> = ({
-    schedule,
-  }) => {
-    const { data: calendarEvents } = useQuery<any[]>({
-      queryKey: ['calendar-events-teacher-table'],
-      queryFn: async () => {
-        const res = await fetch('/api/calendar-events');
-        if (!res.ok) return [];
-        return res.json();
-      },
-      refetchInterval: 10000
-    });
-
-    const hasEvents = calendarEvents && calendarEvents.length > 0;
-
-    const getWeekDate = (dayOffsetIndex: number) => {
-      const now = new Date();
-      const currentDay = now.getDay(); // 0=Sun, 1=Mon...6=Sat
-      const diffToMon = currentDay === 0 ? -6 : 1 - currentDay;
-      const d = new Date(now);
-      d.setDate(now.getDate() + diffToMon + dayOffsetIndex);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    };
-
-    const daysNames = ["ორშაბათი", "სამშაბათი", "ოთხშაბათი", "ხუთშაბათი", "პარასკევი", "შაბათი"];
-    const daysShort = ["ორშ", "სამ", "ოთხ", "ხუთ", "პარ"];
-
-    // Find makeup events for current week
-    const currentWeekEvents = (calendarEvents || []).filter(evt => {
-      const monStr = getWeekDate(0);
-      const satStr = getWeekDate(5);
-      return evt.date >= monStr && evt.date <= satStr;
-    });
-
-    const makeupEventThisWeek = currentWeekEvents.find(e => e.type === 'makeup');
-    const hasSaturdayMakeup = !!makeupEventThisWeek;
-
-    const activeDayIndices = [0, 1, 2, 3, 4];
-    if (hasSaturdayMakeup) {
-      activeDayIndices.push(5); // Saturday
-    }
-
-    return (
-      <div className="schedule-grid-container">
-        {/* Makeup notice about Saturday */}
-        {makeupEventThisWeek && (
-          <div style={{
-            marginBottom: '16px',
-            background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-            border: '1.5px solid #0284c7',
-            borderRadius: '12px',
-            padding: '14px 18px',
-            color: '#0369a1',
-            fontWeight: 700,
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            boxShadow: '0 4px 12px rgba(2, 132, 199, 0.15)'
-          }}>
-            <span style={{ fontSize: '18px' }}>📌</span>
-            <div>
-              <strong>შაბათი ({makeupEventThisWeek.date}):</strong> ტარდება აღდგენითი სწავლა! (აღადგენს <strong>{daysNames[makeupEventThisWeek.replacementDayOfWeek ?? 0]}ს</strong> გაკვეთილებს — {makeupEventThisWeek.title})
-            </div>
-          </div>
-        )}
-
-        {/* Schedule Header */}
-        <div className="schedule-header-grid" style={{
-          gridTemplateColumns: `60px repeat(${activeDayIndices.length}, 1fr)`
-        }}>
-          <div className="schedule-day-pill" style={{ opacity: 0 }}></div> {/* Spacer for time column */}
-          {activeDayIndices.map((dayIdx) => {
-            const dateStr = getWeekDate(dayIdx);
-            const isSat = dayIdx === 5;
-            const eventForDay = (calendarEvents || []).find(e => e.date === dateStr);
-            const isHolidayOnly = eventForDay?.type === 'holiday';
-
-            return (
-              <div
-                key={dayIdx}
-                className="schedule-day-pill"
-                style={{
-                  backgroundColor: isSat ? '#0284c7' : isHolidayOnly ? '#ef4444' : undefined,
-                  color: (isSat || isHolidayOnly) ? '#ffffff' : undefined,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  padding: '6px 4px'
-                }}
-              >
-                <span>{isSat ? `შაბ (აღდგენა)` : daysShort[dayIdx]}</span>
-                {isHolidayOnly && <span style={{ fontSize: '10px', opacity: 0.9 }}>(უქმე)</span>}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Schedule Rows */}
-        {lessons.map((lessonIdx, rowIdx) => (
-          <div key={lessonIdx} className="schedule-row" style={{
-            gridTemplateColumns: `60px repeat(${activeDayIndices.length}, 1fr)`
-          }}>
-            <div className="schedule-time-slot">
-              {lessonRoman[rowIdx]}
-            </div>
-            {activeDayIndices.map((dayIdx) => {
-              const dateStr = getWeekDate(dayIdx);
-              const eventForDay = (calendarEvents || []).find(e => e.date === dateStr);
-              const isHoliday = eventForDay?.type === 'holiday';
-
-              // Effective schedule index
-              let effectiveIdx = dayIdx;
-              if (dayIdx === 5 && makeupEventThisWeek && makeupEventThisWeek.replacementDayOfWeek !== undefined) {
-                effectiveIdx = makeupEventThisWeek.replacementDayOfWeek;
-              }
-
-              // If holiday without makeup replacement on that weekday, empty/remove lessons
-              const slot = isHoliday ? null : schedule[effectiveIdx]?.[lessonIdx - 1];
-
-              const getResolvedSubject = (s: any) => {
-                if (!s) return "";
-                if (s.subject_id) {
-                  const foundSub = allSubjects.find((sub: any) => sub._id === s.subject_id || sub._id?.toString() === s.subject_id?.toString());
-                  if (foundSub?.name) return foundSub.name;
-                }
-                if (s.subjectName && s.subjectName.trim() !== '') {
-                  return s.subjectName;
-                }
-                const matchedCls = teachesClasses.find((c: any) =>
-                  c._id === s.class_id || c.classname === s.className
-                );
-                if (matchedCls && matchedCls.teacherSubjects && matchedCls.teacherSubjects.length === 1) {
-                  return matchedCls.teacherSubjects[0];
-                }
-                return "";
-              };
-              const subjText = getResolvedSubject(slot);
-
-              return (
-                <div
-                  key={dayIdx}
-                  className={`schedule-lesson-card ${slot ? 'active' : ''}`}
-                  style={{
-                    backgroundColor: isHoliday ? 'rgba(239, 68, 68, 0.08)' : undefined,
-                    borderColor: isHoliday ? 'rgba(239, 68, 68, 0.2)' : undefined
-                  }}
-                >
-                  {isHoliday ? (
-                    <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 800 }}>🔴 დასვენება</span>
-                  ) : slot ? (
-                    <div className="schedule-subject-name" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', textAlign: 'center', padding: '4px' }}>
-                      <span style={{ fontWeight: 900, fontSize: '15px', color: '#0f172a' }}>{slot.className}</span>
-                      {subjText ? (
-                        <span style={{
-                          fontSize: '12px',
-                          color: '#2563eb',
-                          fontWeight: '800',
-                          background: '#eff6ff',
-                          border: '1px solid #bfdbfe',
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                          display: 'inline-block',
-                          maxWidth: '100%',
-                          wordBreak: 'break-word'
-                        }}>
-                          {subjText}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <span className="schedule-empty">---</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-
-        {/* List of Holidays and Makeup Days AT THE BOTTOM */}
-        <div style={{
-          marginTop: '24px',
-          padding: '18px 20px',
-          background: '#ffffff',
-          borderRadius: '16px',
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.04)'
-        }}>
-          <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span>📅</span> დასვენების და აღდგენის დღეების სია
-          </h4>
-
-          {hasEvents ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {calendarEvents.map((evt) => (
-                <div
-                  key={evt._id || evt.date}
-                  style={{
-                    backgroundColor: evt.type === 'holiday' ? '#fef2f2' : '#f0f9ff',
-                    border: evt.type === 'holiday' ? '1px solid #fecaca' : '1px solid #bae6fd',
-                    borderRadius: '10px',
-                    padding: '10px 14px',
-                    color: evt.type === 'holiday' ? '#991b1b' : '#0369a1',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '8px'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      fontWeight: 800,
-                      background: evt.type === 'holiday' ? '#ef4444' : '#0284c7',
-                      color: '#ffffff'
-                    }}>
-                      {evt.type === 'holiday' ? '🔴 დასვენება' : '🔵 აღდგენა'}
-                    </span>
-                    <strong>{evt.date}</strong> — <span>{evt.title}</span>
-                  </div>
-
-                  {evt.type === 'makeup' && evt.replacementDayOfWeek !== undefined && (
-                    <span style={{ fontSize: '12px', color: '#0284c7', fontWeight: 800 }}>
-                      📌 შაბათი ({evt.date}) — აღადგენს {daysNames[evt.replacementDayOfWeek]}ს გაკვეთილებს
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div style={{ fontSize: '13px', color: '#64748b' }}>
-              დასვენების ან აღდგენის დღეები ჯერ არ არის დამატებული.
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Unified Teacher Layout Component
   const renderTeacherLayout = (children: React.ReactNode) => {
     return (
       <div className="admin-page-wrapper">
@@ -937,7 +942,7 @@ const Teacher: React.FC = () => {
   };
 
   // Teach class options page
-  const TeachClassOptionsPage: React.FC = () => {
+  const renderTeachClassOptions = () => {
     const { id } = useParams();
     const [searchParams] = useSearchParams();
     const classObj = teachesClasses.find((cls: any) => cls._id === id);
@@ -1004,7 +1009,7 @@ const Teacher: React.FC = () => {
   };
 
   // Teacher Homework Page
-  const TeacherHomeworkPage: React.FC = () => {
+  const renderTeacherHomework = () => {
     const { id } = useParams();
     const loginData = JSON.parse(localStorage.getItem("login") || "{}");
     const user_ID = loginData.user_ID || "teacher";
@@ -1033,7 +1038,7 @@ const Teacher: React.FC = () => {
   };
 
   // Grade entry page
-  const GradeEntryPage: React.FC = () => {
+  const renderGradeEntry = () => {
     const { id } = useParams();
     const [searchParams] = useSearchParams();
     const urlSubjectId = searchParams.get("subject_id");
@@ -2032,7 +2037,7 @@ const Teacher: React.FC = () => {
   };
 
   // Grade history page
-  const GradeHistoryPage: React.FC<{ allSubjects: any[] }> = () => {
+  const renderGradeHistory = () => {
     const { id } = useParams();
     const [searchParams] = useSearchParams();
     const classId = id!;
@@ -2098,7 +2103,7 @@ const Teacher: React.FC = () => {
   };
 
   // Statistics page
-  const StatisticsPage: React.FC = () => {
+  const renderStatistics = () => {
     const { id } = useParams();
     const classId = id!;
     const [selectedSubject, setSelectedSubject] = useState<string>("");
@@ -2526,7 +2531,7 @@ const Teacher: React.FC = () => {
                 <div className="admin-form-title">განრიგი იტვირთება...</div>
               </div>
             ) : (
-              <TeacherCalendarTable schedule={teacherSchedule} />
+              <TeacherCalendarTable schedule={teacherSchedule} allSubjects={allSubjects} teachesClasses={teachesClasses} />
             ))}
           {activeTab === "homeroom" && (
             <div className="admin-view-container">
@@ -2694,7 +2699,7 @@ const Teacher: React.FC = () => {
   );
 
   // Tutor class details page
-  const TutorClassDetailsPage: React.FC = () => {
+  const renderTutorClassDetails = () => {
     const { id } = useParams();
     const [loading, setLoading] = useState(true);
     const [tutorClass, setTutorClass] = useState<any | null>(null);
@@ -2776,15 +2781,12 @@ const Teacher: React.FC = () => {
         element={
           <Routes>
             <Route path="/" element={mainContent} />
-            <Route path="class/:id" element={<TutorClassDetailsPage />} />
-            <Route path="teach/:id" element={<TeachClassOptionsPage />} />
-            <Route path="teach/:id/grade" element={<GradeEntryPage />} />
-            <Route
-              path="teach/:id/history"
-              element={<GradeHistoryPage allSubjects={allSubjects} />}
-            />
-            <Route path="teach/:id/statistics" element={<StatisticsPage />} />
-            <Route path="teach/:id/homework" element={<TeacherHomeworkPage />} />
+            <Route path="class/:id" element={renderTutorClassDetails()} />
+            <Route path="teach/:id" element={renderTeachClassOptions()} />
+            <Route path="teach/:id/grade" element={renderGradeEntry()} />
+            <Route path="teach/:id/history" element={renderGradeHistory()} />
+            <Route path="teach/:id/statistics" element={renderStatistics()} />
+            <Route path="teach/:id/homework" element={renderTeacherHomework()} />
           </Routes>
         }
       />

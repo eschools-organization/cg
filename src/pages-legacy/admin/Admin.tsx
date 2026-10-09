@@ -1320,7 +1320,7 @@ const Admin: React.FC = () => {
         setView('studentCard');
     };
 
-    const DayScanPage: React.FC = () => {
+    const renderDayScan = () => {
         const todayStr = new Date().toISOString().split('T')[0];
         const [scanMode, setScanMode] = useState<'single' | 'range'>('range');
         const [selectedClassId, setSelectedClassId] = useState<string>('all');
@@ -2084,7 +2084,7 @@ const Admin: React.FC = () => {
                     </div>
                 );
             case 'dayScan':
-                return <DayScanPage />;
+                return renderDayScan();
             case 'statistics':
                 return <AdminStatisticsPage
                     classes={classes}
