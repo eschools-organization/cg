@@ -17,7 +17,8 @@ jobs:
           port: ${{ secrets.SERVER_PORT }}
           script: |
             cd /var/www/html/cg
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install
             npm run build
             pm2 restart cg
