@@ -391,10 +391,16 @@ const Teacher: React.FC = () => {
 
   // Get current logged-in teacher info for chat and notices
   const chatLoginData = JSON.parse(typeof window !== 'undefined' ? localStorage.getItem("login") || "{}" : "{}");
-  const currentUserID = chatLoginData.user_ID || "";
-  const teacherObjForChat = allTeachers.find((t: any) => t.user_ID === currentUserID);
-  const teacherIdForChat = teacherObjForChat?._id || currentUserID;
-  const teacherNameForChat = teacherObjForChat ? `${teacherObjForChat.name} ${teacherObjForChat.surname}` : "მასწავლებელი";
+  const currentUserID = chatLoginData.user_ID || chatLoginData.ID || chatLoginData._id || "";
+  const teacherObjForChat = allTeachers.find((t: any) =>
+    isSameId(t._id, currentUserID) ||
+    isSameId(t.user_ID, currentUserID) ||
+    isSameId(t.ID, currentUserID) ||
+    String(t.user_ID) === String(currentUserID) ||
+    String(t.ID) === String(currentUserID)
+  );
+  const teacherIdForChat = teacherObjForChat?._id ? extractIdStr(teacherObjForChat._id) : currentUserID;
+  const teacherNameForChat = teacherObjForChat ? `${teacherObjForChat.name || ''} ${teacherObjForChat.surname || ''}`.trim() || teacherObjForChat.name : "მასწავლებელი";
 
   // Fetch teacher messages for unread badge evaluation
   const { data: teacherMessages } = useQuery({
@@ -453,7 +459,7 @@ const Teacher: React.FC = () => {
     const fetchClasses = async () => {
       // Get teacher user_ID from localStorage
       const loginData = JSON.parse(localStorage.getItem("login") || "{}");
-      const user_ID = loginData.user_ID;
+      const user_ID = loginData.user_ID || loginData.ID || loginData._id;
       if (!user_ID) return;
       // Fetch all classes
       const res = await fetch("/api/classes");
@@ -467,9 +473,19 @@ const Teacher: React.FC = () => {
         teachers.sort((a: any, b: any) => `${a.name || ''} ${a.surname || ''}`.localeCompare(`${b.name || ''} ${b.surname || ''}`, 'ka'));
       }
       setAllTeachers(teachers);
-      const teacher = teachers.find((t: any) => t.user_ID === user_ID);
-      if (!teacher) return;
-      const teacherId = teacher._id;
+
+      const teacher = teachers.find((t: any) =>
+        isSameId(t._id, user_ID) ||
+        isSameId(t.user_ID, user_ID) ||
+        isSameId(t.ID, user_ID) ||
+        String(t.user_ID) === String(user_ID) ||
+        String(t.ID) === String(user_ID) ||
+        String(t._id) === String(user_ID)
+      );
+
+      const teacherId = teacher ? teacher._id : user_ID;
+      const teacherUserId = teacher ? (teacher.user_ID || teacher.ID || teacher._id) : user_ID;
+
       // Fetch all subjects for subject names
       const subjRes = await fetch("/api/subjects");
       if (!subjRes.ok) return;
@@ -478,23 +494,30 @@ const Teacher: React.FC = () => {
         subjects.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', 'ka'));
       }
       setAllSubjects(subjects);
+
       // Tutor classes
-      const tutor = allClasses.filter((cls: any) => isSameId(cls.damrigebeli, teacherId));
+      const tutor = allClasses.filter((cls: any) =>
+        isSameId(cls.damrigebeli, teacherId) ||
+        isSameId(cls.damrigebeli, teacherUserId) ||
+        isSameId(cls.tutor_id, teacherId) ||
+        isSameId(cls.tutor_id, teacherUserId)
+      );
+
       // Teaches classes (any subject with hours_per_week > 0)
       const teaches = allClasses
         .filter(
           (cls: any) =>
             Array.isArray(cls.subjects) &&
-            cls.subjects.some((subj: any) => 
-              isSameId(subj.teacher_id, teacherId) && 
+            cls.subjects.some((subj: any) =>
+              (isSameId(subj.teacher_id, teacherId) || isSameId(subj.teacher_id, teacherUserId)) &&
               (subj.hours_per_week === undefined || subj.hours_per_week > 0)
             ),
         )
         .map((cls: any) => {
           // Find subjects this teacher teaches in this class
           const teacherSubjects = (cls.subjects || [])
-            .filter((subj: any) => 
-              isSameId(subj.teacher_id, teacherId) && 
+            .filter((subj: any) =>
+              (isSameId(subj.teacher_id, teacherId) || isSameId(subj.teacher_id, teacherUserId)) &&
               (subj.hours_per_week === undefined || subj.hours_per_week > 0)
             )
             .map((subj: any) => {
@@ -507,12 +530,14 @@ const Teacher: React.FC = () => {
           return { ...cls, teacherSubjects };
         })
         .filter((cls: any) => cls.teacherSubjects && cls.teacherSubjects.length > 0);
+
       setTutorClasses(tutor);
       setTeachesClasses(teaches);
+
       // Fetch teacher schedule
       setScheduleLoading(true);
       const scheduleRes = await fetch(
-        `/api/teacher/schedule?user_ID=${encodeURIComponent(user_ID)}&teacher_id=${encodeURIComponent(teacherId || "")}`,
+        `/api/teacher/schedule?user_ID=${encodeURIComponent(teacherUserId || user_ID)}&teacher_id=${encodeURIComponent(teacherId || "")}`,
       );
       if (scheduleRes.ok) {
         const sched = await scheduleRes.json();
